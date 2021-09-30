@@ -28,38 +28,14 @@ def attention(query, key, value):
 
 class ImageClassifier(ClassifierBase):
   def __init__(self, backbone: nn.Module, num_classes: int, bottleneck_dim: Optional[int] = 256, **kwargs):
-    super(ImageClassifier, self).__init__(backbone, num_classes)
-    self.conv1 = backbone.conv1
-    self.bn1 = backbone.bn1
-    self.relu = backbone.relu
-    self.maxpool = backbone.maxpool
-    self.layer1 = backbone.layer1
-    self.layer2 = backbone.layer2
-    self.layer3 = backbone.layer3
-    self.layer4 = backbone.layer4
-    self.avgpool = backbone.avgpool
-    self.op = backbone.out_features
-    self.feature_layers = nn.Sequential(self.conv1, self.bn1, self.relu, self.maxpool, self.layer1, self.layer2, self.layer3, self.layer4, self.avgpool)
-    #bottleneck = nn.Linear(backbone.fc.in_features, bottleneck_dim)
-    #self.fc = nn.Linear(bottleneck_dim, num_classes)
     bottleneck = nn.Sequential(
+      nn.AdaptiveAvgPool2d(output_size=(1,1)),
       nn.Flatten(),
-      nn.Linear(self.op, bottleneck_dim),
+      nn.Linear(backbone.out_features, bottleneck_dim),
       nn.BatchNorm1d(bottleneck_dim),
       nn.ReLU()
     )
-
-    #bottleneck = nn.Sequential(
-    #  nn.AdaptiveAvgPool2d(output_size=(1, 1)),
-    #  nn.Flatten(),
-    #  nn.Linear(backbone.out_features, bottleneck_dim),
-    #  nn.BatchNorm1d(bottleneck_dim),
-    #  nn.ReLU()
-    #)
-    super(ImageClassifier, self).__init__(self.feature_layers, num_classes, bottleneck, bottleneck_dim, **kwargs)
-    
-
-
+    super(ImageClassifier, self).__init__(backbone, num_classes, bottleneck, bottleneck_dim, **kwargs)
 
 class MultiHeadedAttention(nn.Module):
   def __init__(self, num_heads: int, d_model: int):
@@ -109,7 +85,7 @@ class AttentionalGNN(nn.Module):
       return S, T
 
 class GAA(nn.Module):
-  def __init__(self, input_dim: int, gnn_layers: int, num_heads: int, **kwargs):
+  def __init__(self, input_dim: int, num_classes: int, gnn_layers: int, num_heads: int, **kwargs):
     # self, backbone: nn.Module, num_classes: int, bottleneck_dim: Optional[int] = 256, **kwargs
     super().__init__()
     self.input_dim = input_dim
@@ -121,6 +97,7 @@ class GAA(nn.Module):
 
     #self.final_proj = nn.Conv1d(self.input_dim, self.input_dim, kernel_size = 1, bias = True)
     self.final_proj = nn.Linear(self.input_dim, self.input_dim)
+    self.head = nn.Linear(self.input_dim, num_classes)
 
   def forward(self, src, tgt):
     #src = data['source'].double()
@@ -129,5 +106,7 @@ class GAA(nn.Module):
     src, tgt = self.gnn(src, tgt)
     
     m_src, m_tgt = self.final_proj(src), self.final_proj(tgt)
+    y_src, y_tgt = self.head(m_src), self.head(m_tgt)
 
-    return m_src, m_tgt # To classification head
+    return m_src, m_tgt, y_src, y_tgt # To classification head
+
