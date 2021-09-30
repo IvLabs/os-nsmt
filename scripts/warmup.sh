@@ -1,0 +1,1 @@
+CUDA_VISIBLE_DEVICES=0 python3 warmup.py --dset office-home -s Art -t Clipart --trained_wt weights/office-home --wandb 0 --batch_size 128 --net vit
