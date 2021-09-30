@@ -228,8 +228,7 @@ def validate(val_loader: DataLoader, model: Classifier, args: argparse.Namespace
         known = torch.mean(accs[:-1]).item() * 100
         unknown = accs[-1].item() * 100
         h_score = 2 * known * unknown / (known + unknown)
-        #if args.per_class_eval:
-        if True:
+        if args.per_class_eval:
             print(confmat.format(classes))
         print(' * All {all:.3f} Known {known:.3f} Unknown {unknown:.3f} H-score {h_score:.3f}'
               .format(all=all_acc, known=known, unknown=unknown, h_score=h_score))
@@ -258,7 +257,7 @@ if __name__ == '__main__':
   parser.add_argument('-s', '--source', help = 'source domain(s)')
   parser.add_argument('-t', '--target', help = 'target domain(s)')
   parser.add_argument('--trade-off', default = 1., type = float)
-  parser.add_argument('-i', '--iters-per-epoch', default = 100, type = int)
+  parser.add_argument('-i', '--iters-per-epoch', default = 500, type = int)
   parser.add_argument('-p', '--print-freq', default = 100, type = int)
   parser.add_argument('--log', type = str, default = 'degaa')
   parser.add_argument('--seed', default = None, type = int)
