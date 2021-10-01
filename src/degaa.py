@@ -32,8 +32,11 @@ from common.utils.meter import AverageMeter, ProgressMeter
 from common.utils.logger import CompleteLogger
 from common.utils.analysis import collect_feature, tsne, a_distance
 
-from torchsummary import summary
+#from torchsummary import summary
 
+import wandb
+
+wandb.init(project = "degaa")
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Total GPUs Used:", torch.cuda.device_count())
@@ -44,6 +47,8 @@ while(i < torch.cuda.device_count()):
   i = i + 1
 
 def main(args: argparse.Namespace):
+  
+  wandb.run.name = 'run_' + str(args.source) + str(args.target)
 
   logger = CompleteLogger(args.log, args.phase)
 
@@ -80,21 +85,21 @@ def main(args: argparse.Namespace):
   # OfficeHome Ar: Art, Cl: Clipart, Pr: Product, Rw: Real - World
   #print(args.source, args.target, dataset.domains())
   #print(args.source.split(','))
-  args.source = args.source.split(',')
-  args.target = args.target.split(',')
+  #args.source = args.source.split(',')
+  #args.target = args.target.split(',')
   if args.dataset == 'OfficeHome':
     args.root = os.path.join(args.root, 'office-home')
-  train_source_dataset = ConcatDataset([source_dataset(root=args.root, task=source, download=True, transform=train_transform) 
-  for source in args.source])
-  train_target_dataset = ConcatDataset([target_dataset(root=args.root, task=target, download=True, transform=train_transform) 
-  for target in args.target])
+  #train_source_dataset = ConcatDataset([source_dataset(root=args.root, task=source, download=True, transform=train_transform) for source in args.source])
+  #train_target_dataset = ConcatDataset([target_dataset(root=args.root, task=target, download=True, transform=train_transform) for target in args.target])
+  train_source_dataset = source_dataset(root=args.root, task=args.source, download=True, transform=train_transform)
+  train_target_dataset = target_dataset(root=args.root, task=args.target, download=True, transform=train_transform)
 
   train_source_loader = DataLoader(train_source_dataset, batch_size = args.batch_size, shuffle = True,
   num_workers = args.workers, drop_last = True)
   train_target_loader = DataLoader(train_target_dataset, batch_size = args.batch_size, shuffle = True,
   num_workers = args.workers, drop_last = True)
 
-  val_dataset = dataset(root=args.root, task = args.target[0], download = True, transform = val_transform)
+  val_dataset = target_dataset(root=args.root, task = args.target, download = True, transform = val_transform)
   val_loader = DataLoader(val_dataset, batch_size = args.batch_size, shuffle = False, num_workers = args.workers)
   
   if args.dataset == 'DomainNet':
@@ -119,6 +124,11 @@ def main(args: argparse.Namespace):
 
   gaa = GAA(input_dim = args.bottleneck_dim, num_classes = num_classes, gnn_layers = 6, num_heads = 4).to(device)
   #summary(gaa, [(32, 1024),(32, 1024)])
+
+  if args.phase == 'test':
+    acc1 = validate(test_loader, classifier, args)
+    print(acc1)
+    return
 
   best_h_score = 0.
   for epoch in range(args.epochs):
@@ -189,6 +199,8 @@ def train(train_source_iter: ForeverDataIterator, train_target_iter: ForeverData
     batch_time.update(time.time() - end)
     end = time.time()
 
+    wandb.log({'accuracy_source': cls_acc, 'accuracy_target': tgt_acc, 'loss': loss})
+
     if i % args.print_freq == 0:
       progress.display(i)
 
@@ -244,7 +256,7 @@ if __name__ == '__main__':
 
   parser.add_argument('-d', '--dataset', default = 'OfficeHome')
   parser.add_argument('-a', '--arch', default = 'resnet50')
-  parser.add_argument('-b', '--batch_size', default = 32)
+  parser.add_argument('-b', '--batch_size', type = int, default = 32)
   parser.add_argument('--lr', '--learning_rate', default = 0.002)
   parser.add_argument('--lr-gamma', default = 0.001)
   parser.add_argument('--bottleneck-dim', default = 2048)
@@ -252,7 +264,7 @@ if __name__ == '__main__':
   parser.add_argument('--momentum', default = 0.9)
   parser.add_argument('--wd', '--weight-decay', default = 1e-3)
   parser.add_argument('-j', '--workers', default = 2)
-  parser.add_argument('--epochs', default = 20)
+  parser.add_argument('--epochs', type = int, default = 20)
   parser.add_argument('--root', default = 'data')
   parser.add_argument('-s', '--source', help = 'source domain(s)')
   parser.add_argument('-t', '--target', help = 'target domain(s)')
