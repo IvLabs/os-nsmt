@@ -20,7 +20,7 @@ def get_algorithm_class(algorithm_name):
     return globals()[algorithm_name]
 
 
-class Proto(ERM):
+class Proto(nn.Module):
     """
     Domain-Aware Prototypical Domain Generalization (Proto)
 
@@ -45,7 +45,10 @@ class Proto(ERM):
     """
 
     def __init__(self, input_shape, num_classes, num_domains, hparams, use_relu=True):
-        super(Proto, self).__init__(input_shape, num_classes, num_domains, hparams)
+        super(Proto, self).__init__()
+        
+        self.hparams = hparams
+        self.network = nn.Sequential(self.featurizer, self.classifier)
 
         # initializing constants
         self.nd = num_domains
