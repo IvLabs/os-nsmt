@@ -4,10 +4,10 @@ import random
 
 import torch
 import torch.nn as nn
-from domainbed import networks
-from domainbed.algorithms import ERM
-from domainbed.lib.misc import cross_entropy, random_pairs_of_minibatches
-from domainbed.lib.prototype import prototypical_loss
+from . import networks
+from .algorithms import ERM
+from .lib.misc import cross_entropy, random_pairs_of_minibatches
+from .lib.prototype import prototypical_loss
 
 
 ALGORITHMS_Proto = ["Proto", "Proto_NoReLU", "Proto_Mixup", "Proto_NoReLU_Mixup"]

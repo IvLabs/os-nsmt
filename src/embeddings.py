@@ -9,6 +9,7 @@ import os
 import sys
 from os.path import dirname
 
+sys.path.append(os.getcwd())
 up1 = dirname(dirname(__file__))
 sys.path.insert(0, up1) 
 
@@ -18,15 +19,14 @@ import time
 import numpy as np
 import torch
 import torch.utils.data
-from dalib.domainbed import algorithms, algorithms_proto, datasets, hparams_registry
+from dalib.domainbed import algorithms_proto, datasets, hparams_registry
 from dalib.domainbed.lib import misc
 from dalib.domainbed.lib.fast_data_loader import FastDataLoader
 
-
-DATA_DIR = up1 + '/data'
+print(up1)
+DATA_DIR = '../OfficeHomeDataset_10072016'
 MODEL_DIR = up1 + '/models'
 OUTPUT_DIR = up1 + '/outputs'
-
 
 def _get_minibatches(data_loader):
     """ Wrapper around minibatch loader"""
@@ -561,6 +561,11 @@ def main(args):
 
 
 if __name__ == "__main__":
+
+    # dataset = datasets.__dict__[args.dataset]
+    # source_dataset = open_set(dataset, source = True)
+    # target_dataset = open_set(dataset, source = False)
+
     parser = argparse.ArgumentParser(description="Domain Embeddings")
     parser.add_argument("--dataset", type=str, default="OfficeHome")
     parser.add_argument("--algorithm", type=str, default="Proto")
@@ -608,3 +613,6 @@ if __name__ == "__main__":
     # If we ever want to implement checkpointing, just persist these values
     # every once in a while, and then load them from disk here.
     main(args)
+
+
+# Dataset link: https://drive.google.com/file/d/0B81rNlvomiwed0V1YUxQdC1uOTg/view?usp=sharing&resourcekey=0-2SNWq0CDAuWOBRRBL7ZZsw

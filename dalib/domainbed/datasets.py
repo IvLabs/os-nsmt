@@ -126,7 +126,7 @@ class DomainNet(MultipleEnvironmentImageFolder):
 class OfficeHome(MultipleEnvironmentImageFolder):
     N_STEPS = 4000
     CHECKPOINT_FREQ = 100
-    ENVIRONMENT_NAMES = ["A", "C", "P", "R"]
+    ENVIRONMENT_NAMES = ["Art", "Clipart", "Product", "Re"]
 
     NUM_PROTO_STEPS = 200
     PROTO_CHECKPOINT_FREQ = 100
@@ -134,7 +134,8 @@ class OfficeHome(MultipleEnvironmentImageFolder):
     NUM_PROTO_EXTRACTION_POINTS = 500
 
     def __init__(self, root, test_envs, hparams):
-        self.dir = os.path.join(root, "office_home/")
+        # self.dir = os.path.join(root, "office_home/")
+        self.dir = root
         super().__init__(self.dir, test_envs, True, hparams)
 
 
@@ -149,5 +150,5 @@ class Office31(MultipleEnvironmentImageFolder):
     NUM_PROTO_EXTRACTION_POINTS = 500
 
     def __init__(self, root, test_envs, hparams):
-        self.dir = os.path.join(root, "office_home/")
+        self.dir = os.path.join(root, "office_31/")
         super().__init__(self.dir, test_envs, True, hparams)

@@ -10,8 +10,8 @@ import copy
 import numpy as np
 from collections import defaultdict
 
-from domainbed import networks
-from domainbed.lib.misc import random_pairs_of_minibatches, ParamDict
+from . import networks
+from .lib.misc import random_pairs_of_minibatches, ParamDict
 
 ALGORITHMS = [
     'ERM',
