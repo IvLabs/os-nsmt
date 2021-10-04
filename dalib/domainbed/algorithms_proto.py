@@ -46,9 +46,20 @@ class Proto(nn.Module):
 
     def __init__(self, input_shape, num_classes, num_domains, hparams, use_relu=True):
         super(Proto, self).__init__()
-        
+
         self.hparams = hparams
+
+        self.featurizer = networks.Featurizer(input_shape, self.hparams)
+        self.classifier = networks.Classifier(
+            self.featurizer.n_outputs,
+            num_classes,
+            self.hparams['nonlinear_classifier'])
         self.network = nn.Sequential(self.featurizer, self.classifier)
+        self.optimizer = torch.optim.Adam(
+            self.network.parameters(),
+            lr=self.hparams["lr"],
+            weight_decay=self.hparams['weight_decay']
+        )
 
         # initializing constants
         self.nd = num_domains
