@@ -6,7 +6,8 @@ import argparse
 import shutil
 import os.path as osp
 import os
-
+from sklearn.neighbors import LocalOutlierFactor
+from sklearn.neighbors import KNeighborsClassifier
 import torch
 import torch.nn as nn
 import torch.backends.cudnn as cudnn
@@ -16,6 +17,7 @@ from torch.utils.data import DataLoader
 import torchvision.transforms as T
 import torch.nn.functional as F
 from torch.utils.data.dataset import ConcatDataset
+import numpy as np
 
 sys.path.append(os.getcwd())
 from dalib.modules.domain_discriminator import DomainDiscriminator
@@ -147,7 +149,7 @@ def main(args: argparse.Namespace):
 
   logger.close()
 
-def train(train_source_iter: ForeverDataIterator, train_target_iter: ForeverDataIterator, model: ImageClassifier, gaa: GAA, optimizer: SGD, lr_scheduler: LambdaLR, epoch: int, args: argparse.Namespace):
+def train(train_source_iter: ForeverDataIterator, train_target_iter: ForeverDataIterator, model: ImageClassifier, gaa: GAA, optimizer: SGD, lr_scheduler: LambdaLR, epoch: int, args: argparse.Namespace, num_classes = 65):
   
   batch_time = AverageMeter('Time', ':5.2f')
   data_time = AverageMeter('Data', ':5.2f')
@@ -160,7 +162,7 @@ def train(train_source_iter: ForeverDataIterator, train_target_iter: ForeverData
   
   model.train()
   gaa.train()
-
+  clf = LocalOutlierFactor(n_neighbors=num_classes + 1, contamination=0.1)
   end = time.time()
   for i in range(args.iters_per_epoch):
     x_s, label_s = next(train_source_iter)
@@ -177,6 +179,16 @@ def train(train_source_iter: ForeverDataIterator, train_target_iter: ForeverData
     y, f = model(x)
     y_s, y_t = y.chunk(2, dim=0)
     f_s, f_t = f.chunk(2, dim=0)
+
+    f_t_numpy = f_t.clone().cpu().detach().numpy()
+    y_pred = clf.fit_predict(f_t_numpy)
+    index = np.where(y_pred==-1)
+    label_t[index] = num_classes + 1
+
+    """
+    get centroids and find classes.
+    """
+
 
     f_s, f_t, y_s, y_t = gaa(f_s, f_t)
     y_s, y_t = nn.Softmax(dim = 1)(y_s), nn.Softmax(dim = 1)(y_t)
