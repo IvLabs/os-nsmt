@@ -17,8 +17,7 @@ import torchvision.transforms as T
 import torch.nn.functional as F
 from torch.utils.data.dataset import ConcatDataset
 
-sys.path.append(os.getcwd())
-from dalib.modules.domain_discriminator import DomainDiscriminator
+sys.path.append('')
 from common.modules.classifier import Classifier
 #from dalib.adaptation.dann import DomainAdversarialLoss, ImageClassifier
 from dalib.adaptation.degaa import ImageClassifier, GAA
@@ -113,8 +112,8 @@ def main(args: argparse.Namespace):
 
   #val_iter = ForeverDataIterator(val_loader)
 
-  backbone = models.__dict__[args.arch](pretrained = True).to(device)
-  num_classes = val_dataset.num_classes
+  backbone = models.__dict__[args.arch](pretrained = True)
+  num_classes = train_source_dataset.num_classes
 
   classifier = ImageClassifier(backbone, num_classes = num_classes, bottleneck_dim = args.bottleneck_dim).to(device)
   #summary(classifier, (3, 224, 224))
@@ -279,4 +278,5 @@ if __name__ == '__main__':
 
   args = parser.parse_args()
   main(args)
+
 
