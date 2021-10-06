@@ -23,6 +23,8 @@ from dalib.domainbed import algorithms_proto, datasets, hparams_registry
 from dalib.domainbed.lib import misc
 from dalib.domainbed.lib.fast_data_loader import FastDataLoader
 
+# import wandb
+
 print(up1)
 DATA_DIR = '../OfficeHomeDataset_10072016'
 MODEL_DIR = up1 + '/models'
@@ -69,6 +71,8 @@ def _setup_hparams(args):
     for k, v in sorted(hparams.items()):
         print("\t{}: {}".format(k, v))
 
+    # wandb.config.update(args)
+    # wandb.config.update(hparams)
     return hparams
 
 
@@ -601,6 +605,7 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=int, default=0)
     parser.add_argument("--output_dir", type=str, required=True)
     parser.add_argument("--proto_dir", type=str, required=False)
+    # parser.add_argument("--use_wandb", type=bool, default=False)
     args = parser.parse_args()
 
     # args.data_dir, args.model_dir = get_data_model_dir()
@@ -609,6 +614,9 @@ if __name__ == "__main__":
     # args.output_dir = OUTPUT_DIR
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
+
+    # if args.use_wandb:
+    #     wandb.init(project="DomainEmbeddings")
 
     # If we ever want to implement checkpointing, just persist these values
     # every once in a while, and then load them from disk here.
