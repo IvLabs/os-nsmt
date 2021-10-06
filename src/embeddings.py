@@ -22,8 +22,7 @@ import torch.utils.data
 from dalib.domainbed import algorithms_proto, datasets, hparams_registry
 from dalib.domainbed.lib import misc
 from dalib.domainbed.lib.fast_data_loader import FastDataLoader
-
-# import wandb
+import wandb
 
 print(up1)
 DATA_DIR = '../OfficeHomeDataset_10072016'
@@ -253,6 +252,7 @@ def train_prototype(
                     step_end_time,
                 )
             )
+            wandb.log({'prototype step': p_step, 'loss': proto_checkpoint_vals["proto_loss"][-1], 'accuracy': proto_checkpoint_vals["proto_acc"][-1]})
 
         proto_checkpoint_vals["step_time"].append(step_end_time)
 
@@ -605,7 +605,6 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=int, default=0)
     parser.add_argument("--output_dir", type=str, required=True)
     parser.add_argument("--proto_dir", type=str, required=False)
-    # parser.add_argument("--use_wandb", type=bool, default=False)
     args = parser.parse_args()
 
     # args.data_dir, args.model_dir = get_data_model_dir()
@@ -615,8 +614,7 @@ if __name__ == "__main__":
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
 
-    # if args.use_wandb:
-    #     wandb.init(project="DomainEmbeddings")
+    wandb.init(project="DomainEmbeddings")
 
     # If we ever want to implement checkpointing, just persist these values
     # every once in a while, and then load them from disk here.
