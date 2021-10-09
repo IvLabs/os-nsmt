@@ -18,8 +18,10 @@ import torch.nn.functional as F
 from torchvision import transforms
 import matplotlib.pyplot as plt
 import pandas as pd
+import os
 
 sys.path.append('../../..')
+sys.path.append('..')
 from common.modules.classifier import Classifier
 import common.vision.datasets as datasets
 import common.vision.models as models
@@ -232,9 +234,16 @@ def compute_centroids(args,features_labels):
     return cls_centroids
     # print(run_sum.shape)
     
-def tsne_plotter(args, np_cls_centroids, np_feat, np_label, plt_name=None):
+def tsne_plotter(args, np_cls_centroids, np_feat, np_label, plt_name=None, save_cnt_path=None):
 
         cat_feat = np.concatenate((np_cls_centroids, np_feat), axis=0)
+        save_folder = f'{save_cnt_path}/{args.dset}'
+        if save_folder is not None:
+            if not os.path.exists(save_folder):
+                os.makedirs(save_folder)
+            np.save(f'{save_folder}/{plt_name}_centroid.npy', np_cls_centroids)
+            print('Centroid Saved')
+
         data_cen, data_feat = {}, {}
         X_embedded = TSNE(n_components=2, perplexity=15, learning_rate=10).fit_transform(cat_feat)
         data_cen['x_cent'], data_cen['y_cent'], data_cen['lbl_cent'] = X_embedded[:args.num_classes,0],X_embedded[:args.num_classes,1], np.arange(args.num_classes)
@@ -247,6 +256,9 @@ def tsne_plotter(args, np_cls_centroids, np_feat, np_label, plt_name=None):
                             palette=sns.color_palette("Spectral", as_cmap=True) , alpha=0.5, s=12)
         sns.scatterplot(data=data_cen, x="x_cent", y="y_cent", hue='lbl_cent', legend=False, 
                             marker='X', palette=sns.color_palette("Spectral", as_cmap=True))
+        
+        if not os.path.exists('tsne_plts'):
+            os.makedirs('tsne_plts')                    
         plt.savefig(f'tsne_plts/tsne_{plt_name}.pdf')
 
 def main(args):
@@ -266,7 +278,7 @@ def main(args):
         # print('np_feat: ', np_feat.shape)
         np_label = features_labels[domain]['label'].cpu().numpy()
         # print('np_label:', np_label.shape)
-        tsne_plotter(args, np_cls_centroids, np_feat, np_label, plt_name=domain)
+        tsne_plotter(args, np_cls_centroids, np_feat, np_label, plt_name=domain, save_cnt_path='centroids')
         break
 
 if __name__ == "__main__":
@@ -278,7 +290,6 @@ if __name__ == "__main__":
     parser.add_argument('-d', '--dset', type=str,help='Select the target [amazon, dslr, webcam]')
     # parser.add_argument('-e', '--epochs', default=40, type=int,help='select number of cycles')
     parser.add_argument('-w', '--wandb', default=0, type=int,help='Log to wandb or not [0 - dont use | 1 - use]')
-    parser.add_argument('-a', '--arch', default='rn50', type=str,help='Select student vit or rn50 based (default: rn50)')
     parser.add_argument('--net', default='vit', type=str,help='Select vit or rn50 based (default: vit)')
     parser.add_argument('-l', '--trained_wt', default='weights/office-home', type=str,help='Load src')
     args = parser.parse_args()

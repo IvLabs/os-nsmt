@@ -1,5 +1,11 @@
 data/
 weights/
 */__pycache__
-*.pyc
+*/*.pyc
 model/
+wandb/
+run1/
+**/__pycache__/
+logs/
+*.npy
+centroids
