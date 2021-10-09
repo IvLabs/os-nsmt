@@ -126,9 +126,9 @@ class DomainNet(MultipleEnvironmentImageFolder):
 class OfficeHome(MultipleEnvironmentImageFolder):
     N_STEPS = 4000
     CHECKPOINT_FREQ = 100
-    ENVIRONMENT_NAMES = ["Art", "Clipart", "Product", "Re"]
+    ENVIRONMENT_NAMES = ["Art", "Clipart", "Product", "Real"]
 
-    NUM_PROTO_STEPS = 200
+    NUM_PROTO_STEPS = 8000
     PROTO_CHECKPOINT_FREQ = 100
 
     NUM_PROTO_EXTRACTION_POINTS = 500

@@ -77,12 +77,14 @@ def _hparams(algorithm, dataset, random_state):
         # architecture params
         hparams["bottleneck_size"] = (1024, 1024)
 
+        hparams["batch_size"] = (12, 12)
         # pipeline params and model loading
         # train_prototype tells whether we want to train prototype model or not
         hparams["train_prototype"] = (True, True)
         # proto_model tells path to directory where prototype model is stored
         # prototype model must be called "prototype_final.pth" within this dir
-        hparams["proto_model"] = ("/data/IvLabs/domain_embeddings/outputs/pacs/", "/data/IvLabs/domain_embeddings/outputs/pacs/")
+        #hparams["proto_model"] = ("/data/IvLabs/domain_embeddings/outputs/pacs/", "/data/IvLabs/domain_embeddings/outputs/pacs/")
+        hparams["proto_model"] = (None, None)
         # fraction of total files to be used to construct prototype
         hparams["proto_train_frac"] = (0.2, 0.2)
 

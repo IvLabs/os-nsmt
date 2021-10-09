@@ -22,11 +22,20 @@ import torch.utils.data
 from dalib.domainbed import algorithms_proto, datasets, hparams_registry
 from dalib.domainbed.lib import misc
 from dalib.domainbed.lib.fast_data_loader import FastDataLoader
+import wandb
+wandb.init(project = 'degaa')
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print("Total GPUs Used:", torch.cuda.device_count())
+i = 0
+print("Hardwares Used: ")
+while(i < torch.cuda.device_count()):
+  print(torch.cuda.get_device_name(i))
+  i = i + 1
 
-# import wandb
+wandb.run.name = 'DE_OfficeHome'
 
 print(up1)
-DATA_DIR = '../OfficeHomeDataset_10072016'
+DATA_DIR = 'data/office-home'
 MODEL_DIR = up1 + '/models'
 OUTPUT_DIR = up1 + '/outputs'
 
@@ -253,6 +262,7 @@ def train_prototype(
                     step_end_time,
                 )
             )
+            wandb.log({'proto step': p_step, 'proto_loss': proto_checkpoint_vals["proto_loss"][-1], 'proto_accuracy': proto_checkpoint_vals["proto_acc"][-1]})
 
         proto_checkpoint_vals["step_time"].append(step_end_time)
 
@@ -269,7 +279,7 @@ def train_prototype(
             checkpoint_file = os.path.join(
                 args.output_dir, "prototype_%d.pth" % (p_step)
             )
-            algorithm.save_prototype(checkpoint_file)
+            #algorithm.save_prototype(checkpoint_file)
 
             proto_checkpoint_vals = collections.defaultdict(lambda: [])
 
@@ -406,13 +416,16 @@ def train_main(
                 else:
                     acc = misc.accuracy(algorithm, loader, device, -1)
                 results[name + "_acc"] = acc
-                accs.append(acc)
+                wandb.log({name + "_acc": acc})
 
+                accs.append(acc)
+            wandb.log({'main_loss': results['loss']})
             results_keys = sorted(results.keys())
-            if results_keys != last_results_keys:
+            if results_keys != last_results_keys and step % (checkpoint_freq * 100) == 0:
                 misc.print_row(results_keys, colwidth=12)
                 last_results_keys = results_keys
-            misc.print_row([results[key] for key in results_keys], colwidth=12)
+            if step % (checkpoint_freq * 100) == 0:
+                misc.print_row([results[key] for key in results_keys], colwidth=12)
 
             results.update({"hparams": hparams, "args": vars(args)})
 
@@ -420,7 +433,7 @@ def train_main(
             with open(epochs_path, "a") as f:
                 f.write(json.dumps(results, sort_keys=True) + "\n")
             model_path = os.path.join(args.output_dir, "model_%d.pth" % (step))
-            algorithm.save_model(model_path)
+            #algorithm.save_model(model_path)
 
             start_step = step + 1
             checkpoint_vals = collections.defaultdict(lambda: [])
@@ -590,13 +603,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--steps",
         type=int,
-        default=10,
+        default=8000,
         help="Number of steps. Default is dataset-dependent.",
     )
     parser.add_argument(
         "--checkpoint_freq",
         type=int,
-        default=100,
+        default=10,
         help="Checkpoint every N steps. Default is dataset-dependent.",
     )
     parser.add_argument("--test_envs", type=int, nargs="+", default=[-1])
@@ -605,7 +618,6 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=int, default=0)
     parser.add_argument("--output_dir", type=str, required=True)
     parser.add_argument("--proto_dir", type=str, required=False)
-    # parser.add_argument("--use_wandb", type=bool, default=False)
     args = parser.parse_args()
 
     # args.data_dir, args.model_dir = get_data_model_dir()
@@ -615,8 +627,7 @@ if __name__ == "__main__":
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
 
-    # if args.use_wandb:
-    #     wandb.init(project="DomainEmbeddings")
+    #wandb.init(project="DomainEmbeddings")
 
     # If we ever want to implement checkpointing, just persist these values
     # every once in a while, and then load them from disk here.
