@@ -1,3 +1,7 @@
 __pycache__/
 *.py[cod]
 data/
+weights/
+*/__pycache__
+*.pyc
+model/
