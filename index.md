@@ -1,10 +1,14 @@
+# CAFT: Class Aware Frequency Transform for Reducing Domain Gap
+
+
 ## Authors
 
 [Vikash Kumar](https://www.linkedin.com/in/vikash0837/), [Sarthak Srivastava](https://www.linkedin.com/in/ssarthak/)\*, [Rohit Lal](http://rohitlal.net/)\* and [Anirban Chakraborty](http://visual-computing.in/wp-content/uploads/2017/08/anirban-chakraborty.html)
 
+Indian Institute of Science, Bengaluru
+
 \* *Claims equal contribution*
 
-Indian Institute of Science, Bengaluru
 
 
 ## Abstract
