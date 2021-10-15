@@ -1,4 +1,6 @@
-## Welcome to GitHub Pages
+## CAFT: Class Aware Frequency Transform for Reducing Domain Gap
+Authors: Vikash Kumar, Sarthak Srivastava, Rohit Lal, Anirban Chakraborty
+Affiliation: Indian Institute of Science, Bengaluru
 
 You can use the [editor on GitHub](https://github.com/vclab-dev/CAFT/edit/gh-pages/index.md) to maintain and preview the content for your website in Markdown files.
 
