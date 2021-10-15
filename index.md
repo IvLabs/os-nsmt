@@ -1,5 +1,11 @@
-Authors: Vikash Kumar, Sarthak Srivastava, Rohit Lal, Anirban Chakraborty
-Affiliation: Indian Institute of Science, Bengaluru
+## Authors
+
+[Vikash Kumar](https://www.linkedin.com/in/vikash0837/), [Sarthak Srivastava](https://www.linkedin.com/in/ssarthak/)\*, [Rohit Lal](http://rohitlal.net/)\* and [Anirban Chakraborty](http://visual-computing.in/wp-content/uploads/2017/08/anirban-chakraborty.html)
+
+\* *Claims equal contribution*
+
+Indian Institute of Science, Bengaluru
+
 
 ## Abstract
 
