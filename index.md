@@ -1,39 +1,20 @@
-## CAFT: Class Aware Frequency Transform for Reducing Domain Gap
 Authors: Vikash Kumar, Sarthak Srivastava, Rohit Lal, Anirban Chakraborty
 Affiliation: Indian Institute of Science, Bengaluru
 
-You can use the [editor on GitHub](https://github.com/vclab-dev/CAFT/edit/gh-pages/index.md) to maintain and preview the content for your website in Markdown files.
+## Abstract
 
-Whenever you commit to this repository, GitHub Pages will run [Jekyll](https://jekyllrb.com/) to rebuild the pages in your site, from the content in your Markdown files.
+This work explores the usage of Fourier Transform for reducing the domain gap between the Source (e.g. Synthetic Image) and Target domain (e.g. Real Image) towards solving the Domain Adaptation problem. Most of the Unsupervised Domain Adaptation (UDA) algorithms reduce the global domain shift between labelled Source and unlabelled Target domain by matching the marginal distribution. UDA performance deteriorates for the cases where the domain gap between Source and Target is significant. To improve the overall performance of the existing UDA algorithms the proposed method attempts to bring the Source domain closer to the Target domain with the help of pseudo label based class consistent low-frequency swapping. This traditional image processing technique results in computational efficiency, especially compared to the state-of-the-art deep learning methods that use complex adversarial training. The proposed method Class Aware Frequency Transformation (CAFT) can easily be plugged into any existing UDA algorithm to improve its performance. We evaluate CAFT on various domain adaptation datasets and algorithms and have achieved performance gains across all the popular benchmarks.
 
-### Markdown
+## BibTex
 
-Markdown is a lightweight and easy-to-use syntax for styling your writing. It includes conventions for
-
-```markdown
-Syntax highlighted code block
-
-# Header 1
-## Header 2
-### Header 3
-
-- Bulleted
-- List
-
-1. Numbered
-2. List
-
-**Bold** and _Italic_ and `Code` text
-
-[Link](url) and ![Image](src)
+If you find our work useful please cite our paper.
 ```
-
-For more details see [GitHub Flavored Markdown](https://guides.github.com/features/mastering-markdown/).
-
-### Jekyll Themes
-
-Your Pages site will use the layout and styles from the Jekyll theme you have selected in your [repository settings](https://github.com/vclab-dev/CAFT/settings/pages). The name of this theme is saved in the Jekyll `_config.yml` configuration file.
-
-### Support or Contact
-
-Having trouble with Pages? Check out our [documentation](https://docs.github.com/categories/github-pages-basics/) or [contact support](https://support.github.com/contact) and we’ll help you sort it out.
+@InProceedings{Kumar_2021_ICCV,
+    author    = {Kumar, Vikash and Srivastava, Sarthak and Lal, Rohit and Chakraborty, Anirban},
+    title     = {CAFT: Class Aware Frequency Transform for Reducing Domain Gap},
+    booktitle = {Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) Workshops},
+    month     = {October},
+    year      = {2021},
+    pages     = {2525-2534}
+}
+```
