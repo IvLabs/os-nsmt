@@ -1,5 +1,5 @@
 # CAFT: Class Aware Frequency Transform for Reducing Domain Gap
-
+Accepted at TradiCV Workshop, ICCV'21
 
 ## Authors
 
