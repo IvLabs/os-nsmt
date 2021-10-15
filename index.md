@@ -1,4 +1,4 @@
-## CAFT: Class Aware Frequency Transform for Reducing Domain Gap
+##
 
 ## Authors
 
