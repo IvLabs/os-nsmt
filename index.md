@@ -2,16 +2,16 @@
 
 [Rohit Lal](http://rohitlal.net/)<sup>1</sup>, [Arihant Gaur](https://flagarihant2000.github.io/arihantgaur/)<sup>2</sup>, [Aadhithya Iyer](https://aadhithya14.wixsite.com/aadhithya)<sup>2</sup>, [Muhammed Abdullah Shaikh](https://abd.rocks/index_old.html)<sup>2</sup> and [Ritik Agrawal](https://www.linkedin.com/in/ritik-agrawal-6b7718189)<sup>2</sup>
 
-<sup>1</sup>1
+<sup>1</sup>
 Indian Institute of Science (IISc), Bangalore
 <sup>2</sup>Visvesvaraya National Institute of Technology (VNIT), Nagpur
 
 
 ## Abstract
 
-Single-Source Single-Target Domain Adaptation (*`1`S`1`T*) aims to
+Single-Source Single-Target Domain Adaptation (*1S1T*) aims to
 bridge the gap between a labelled source domain and an unlabelled target
-domain. Despite *`1`S`1`T* being a well-researched topic, they are
+domain. Despite *1S1T* being a well-researched topic, they are
 typically not deployed to the real world. Methods like Multi-Source
 Domain Adaptation and Multi-Target Domain Adaptation have evolved to
 model real-world problems but still do not generalise well. The fact
@@ -33,7 +33,7 @@ and ablation studies.
 ![DEGAA_Architecture](Arch.png)
 
 ## Algorithm
-![Degaa_Algorithm](Algo.jpg)
+![DEGAA_ALGO](https://user-images.githubusercontent.com/63636498/145265782-f6978980-54c6-4db4-8375-4ed4f79b3a9b.jpg)
 
 ## BibTex
 
