@@ -1,34 +1,48 @@
-
-
 ## Authors
 
-[Vikash Kumar](https://www.linkedin.com/in/vikash0837/), [Sarthak Srivastava](https://www.linkedin.com/in/ssarthak/)\*, [Rohit Lal](http://rohitlal.net/)\* and [Anirban Chakraborty](http://visual-computing.in/wp-content/uploads/2017/08/anirban-chakraborty.html)
+[Rohit Lal](http://rohitlal.net/)<sup>1</sup>, [Arihant Gaur]()<sup>2</sup>, [Aadhithya Iyer]()<sup>2</sup>, [Muhammed Abdullah Shaikh]()<sup>2</sup> and [Ritik Agrawal]()<sup>2</sup>
 
-Indian Institute of Science, Bengaluru
-
-\* *Claims equal contribution*
+<sup>1</sup>1
+Indian Institute of Science (IISc), Bangalore
+<sup>2</sup>Visvesvaraya National Institute of Technology (VNIT), Nagpur
 
 
 ## Abstract
 
-This work explores the usage of Fourier Transform for reducing the domain gap between the Source (e.g. Synthetic Image) and Target domain (e.g. Real Image) towards solving the Domain Adaptation problem. Most of the Unsupervised Domain Adaptation (UDA) algorithms reduce the global domain shift between labelled Source and unlabelled Target domain by matching the marginal distribution. UDA performance deteriorates for the cases where the domain gap between Source and Target is significant. To improve the overall performance of the existing UDA algorithms the proposed method attempts to bring the Source domain closer to the Target domain with the help of pseudo label based class consistent low-frequency swapping. This traditional image processing technique results in computational efficiency, especially compared to the state-of-the-art deep learning methods that use complex adversarial training. The proposed method Class Aware Frequency Transformation (CAFT) can easily be plugged into any existing UDA algorithm to improve its performance. We evaluate CAFT on various domain adaptation datasets and algorithms and have achieved performance gains across all the popular benchmarks.
+Single-Source Single-Target Domain Adaptation (*`1`S`1`T*) aims to
+bridge the gap between a labelled source domain and an unlabelled target
+domain. Despite *`1`S`1`T* being a well-researched topic, they are
+typically not deployed to the real world. Methods like Multi-Source
+Domain Adaptation and Multi-Target Domain Adaptation have evolved to
+model real-world problems but still do not generalise well. The fact
+that most of these methods assume a common label-set between source and
+target is very restrictive. Recent Open-Set Domain Adaptation methods
+handle unknown target labels but fail to generalise in multiple domains.
+To overcome these difficulties, first, we propose a novel generic domain
+adaptation (DA) setting named Open-Set Multi-Source Multi-Target Domain
+Adaptation (*OS-nSmT*), with *n* and *m* being number of source and
+target domains respectively. Next, we propose a graph attention based
+framework named DEGAA which can capture information from multiple source
+and target domains without knowing the exact label-set of the target. We
+argue that our method, though offered for multiple sources and multiple
+targets, can also be agnostic to various other DA settings. To check the
+robustness and versatility of DEGAA, we put forward ample experiments
+and ablation studies.
 
 ## Architecture
-![CAFT_Architecture](arch.jpg)
+![DEGAA_Architecture](Arch.png)
 
 ## Algorithm
-![CAFT_Algorithm](algo.jpg)
+![Degaa_Algorithm](Algo.jpg)
 
 ## BibTex
 
 If you find our work useful please cite our paper.
 ```
-@InProceedings{Kumar_2021_ICCV,
-    author    = {Kumar, Vikash and Srivastava, Sarthak and Lal, Rohit and Chakraborty, Anirban},
-    title     = {CAFT: Class Aware Frequency Transform for Reducing Domain Gap},
-    booktitle = {Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) Workshops},
-    month     = {October},
-    year      = {2021},
-    pages     = {2525-2534}
+@InProceedings{Lal_2021_NeurIPS,
+    author    = {Lal, Rohit and Gaur, Arihant and Iyer, Aadhithya and Shaikh, Muhammed Abdullah and Agrawal, Ritik},
+    title     = {Open-Set Multi-Source Multi-Target Domain Adaptation},
+    month     = {December},
+    year      = {2021}
 }
 ```
