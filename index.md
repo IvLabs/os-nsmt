@@ -33,7 +33,7 @@ and ablation studies.
 ![DEGAA_Architecture](Arch.png)
 
 ## Algorithm
-![Degaa_Algorithm](Algo.jpg)
+![DEGAA_ALGO](https://user-images.githubusercontent.com/63636498/145265782-f6978980-54c6-4db4-8375-4ed4f79b3a9b.jpg)
 
 ## BibTex
 
