@@ -23,7 +23,6 @@ from dalib.domainbed import algorithms_proto, datasets, hparams_registry
 from dalib.domainbed.lib import misc
 from dalib.domainbed.lib.fast_data_loader import FastDataLoader
 import wandb
-wandb.init(project = 'degaa')
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Total GPUs Used:", torch.cuda.device_count())
 i = 0
@@ -32,7 +31,6 @@ while(i < torch.cuda.device_count()):
   print(torch.cuda.get_device_name(i))
   i = i + 1
 
-wandb.run.name = 'DE_OfficeHome'
 
 print(up1)
 DATA_DIR = 'data/office-home'
@@ -80,8 +78,9 @@ def _setup_hparams(args):
     for k, v in sorted(hparams.items()):
         print("\t{}: {}".format(k, v))
 
-    # wandb.config.update(args)
-    # wandb.config.update(hparams)
+    if args.wandb:
+        wandb.config.update(args)
+        wandb.config.update(hparams)
     return hparams
 
 
@@ -185,7 +184,7 @@ def _setup_algorithm(
         hparams["n_steps_proto"] = num_proto_steps * rounds_proto
 
     # setting regular training num_step hyperparameter
-    rounds = math.ceil(len(trn_d) / hparams["domains_per_iter"])
+    rounds = math.ceil(len(trn_d) / hparams["domains_per_iter"]) # rounds=1
     num_steps = int(math.ceil(dataset.N_STEPS))
     hparams["n_steps"] = num_steps * rounds
 
@@ -223,11 +222,11 @@ def train_prototype(
 
     proto_checkpoint_vals = collections.defaultdict(lambda: [])
 
-    n_prototype_steps = dataset.NUM_PROTO_STEPS
+    n_prototype_steps = dataset.NUM_PROTO_STEPS # 8000
     print("Training prototype for %d steps..." % (n_prototype_steps))
-    rounds = math.ceil(num_train_domains / hparams["proto_domains_per_iter"])
+    rounds = math.ceil(num_train_domains / hparams["proto_domains_per_iter"]) # rounds = 1
     proto_checkpoint_freq = args.checkpoint_freq or dataset.PROTO_CHECKPOINT_FREQ
-    dpi = hparams["proto_domains_per_iter"]
+    dpi = hparams["proto_domains_per_iter"] # dpi=4
 
     for p_step in range(n_prototype_steps):
         step_start_time = time.time()
@@ -237,8 +236,8 @@ def train_prototype(
 
         random.shuffle(minibatches)
 
-        for i in range(rounds):
-            end_idx = min(len(minibatches), dpi * (i + 1))
+        for i in range(rounds): # round = 1
+            end_idx = min(len(minibatches), dpi * (i + 1)) # dpi: 4, len(minibatches): 4, end_idx = 4
             minibatches_device = [
                 (x.to(device), y.to(device))
                 for x, y, _ in minibatches[dpi * i : end_idx]
@@ -262,6 +261,7 @@ def train_prototype(
                     step_end_time,
                 )
             )
+        if args.wandb:
             wandb.log({'proto step': p_step, 'proto_loss': proto_checkpoint_vals["proto_loss"][-1], 'proto_accuracy': proto_checkpoint_vals["proto_acc"][-1]})
 
         proto_checkpoint_vals["step_time"].append(step_end_time)
@@ -297,7 +297,7 @@ def compute_prototype(
 
     prototypes = {}
 
-    algorithm.featurizer.eval()
+    # algorithm.featurizer.eval() # why are we doing this, shouldn't it be prototyper.eval()?
     with torch.no_grad():
 
         if phase == "train":
@@ -322,7 +322,7 @@ def compute_prototype(
                     )
         else:
             # proceed one by one
-            for idx, loader in enumerate(data_loader):
+            for idx, loader in enumerate(data_loader[4:]):
                 np = 0
                 for (x, _) in loader:
 
@@ -346,104 +346,108 @@ def compute_prototype(
     return prototypes
 
 
-def train_main(
-    args,
-    hparams,
-    dataset,
-    algorithm,
-    train_loaders,
-    device,
-    steps_per_epoch,
-    eval_loader_names,
-    eval_loaders,
-):
-    """ Main training function. """
+# def train_main(
+#     args,
+#     hparams,
+#     dataset,
+#     algorithm,
+#     train_loaders,
+#     device,
+#     steps_per_epoch,
+#     eval_loader_names,
+#     eval_loaders,
+# ):
+#     """ Main training function. """
 
-    # initializing details
-    is_proto = "Proto" in args.algorithm
+#     # initializing details
+#     is_proto = "Proto" in args.algorithm
 
-    start_step = 0
-    checkpoint_vals = collections.defaultdict(lambda: [])
-    train_loaders = [iter(x) for x in train_loaders]
-    num_train_domains = len(train_loaders)
+#     start_step = 0
+#     checkpoint_vals = collections.defaultdict(lambda: [])
+#     train_loaders = [iter(x) for x in train_loaders]
+#     num_train_domains = len(train_loaders)
 
-    n_steps = args.steps or dataset.N_STEPS
-    checkpoint_freq = args.checkpoint_freq or dataset.CHECKPOINT_FREQ
-    last_results_keys = None
-    rounds = math.ceil(num_train_domains / hparams["domains_per_iter"])
-    dpi = hparams["domains_per_iter"]
+#     n_steps = args.steps or dataset.N_STEPS
+#     checkpoint_freq = args.checkpoint_freq or dataset.CHECKPOINT_FREQ
+#     last_results_keys = None
+#     rounds = math.ceil(num_train_domains / hparams["domains_per_iter"]) # rounds = 1
+#     dpi = hparams["domains_per_iter"] # dpi = 4
 
-    num_val_steps = int(
-        math.ceil(dataset.NUM_PROTO_EXTRACTION_POINTS * 1.0 / hparams["batch_size"])
-    )
+#     num_val_steps = int(
+#         math.ceil(dataset.NUM_PROTO_EXTRACTION_POINTS * 1.0 / hparams["batch_size"])
+#     )
 
-    for step in range(start_step, n_steps):
-        step_start_time = time.time()
+#     for step in range(start_step, n_steps):
+#         step_start_time = time.time()
 
-        step_vals = collections.defaultdict(lambda: [])
-        minibatches = _get_minibatches(train_loaders)
+#         step_vals = collections.defaultdict(lambda: [])
+#         minibatches = _get_minibatches(train_loaders) # list of len 4 with each tuple (xy,i) x.shape=[12,3,224,224]
 
-        for i in range(rounds):
-            end_idx = min(len(minibatches), dpi * (i + 1))
-            minibatches_device = [
-                (x.to(device), y.to(device))
-                for x, y, _ in minibatches[dpi * i : end_idx]
-            ]
-            if is_proto:
-                stv_x = algorithm.update(minibatches_device, device=device)
-            else:
-                stv_x = algorithm.update(minibatches_device)
+#         for i in range(rounds):
+#             end_idx = min(len(minibatches), dpi * (i + 1)) # min(4, 4*(0+1))
+#             minibatches_device = [
+#                 (x.to(device), y.to(device))
+#                 for x, y, _ in minibatches[dpi * i : end_idx]
+#             ]
+#             if is_proto:
+#                 stv_x = algorithm.update(minibatches_device, device=device)
+#             else:
+#                 stv_x = algorithm.update(minibatches_device)
 
-            for key, val in stv_x.items():
-                step_vals[key].append(val)
-        checkpoint_vals["step_time"].append(time.time() - step_start_time)
+#             for key, val in stv_x.items():
+#                 step_vals[key].append(val)
+#         checkpoint_vals["step_time"].append(time.time() - step_start_time)
 
-        for key, val in step_vals.items():
-            checkpoint_vals[key].append(val)
+#         for key, val in step_vals.items():
+#             checkpoint_vals[key].append(val)
 
-        if step % checkpoint_freq == 0:
-            results = {"step": step, "epoch": step / steps_per_epoch}
+#         if step % checkpoint_freq == 0:
+#             results = {"step": step, "epoch": step / steps_per_epoch}
 
-            for key, val in checkpoint_vals.items():
-                results[key] = np.mean(val)
+#             for key, val in checkpoint_vals.items():
+#                 results[key] = np.mean(val)
 
-            accs = []
-            evals = zip(eval_loader_names, eval_loaders)
-            ne = int(len(eval_loaders) / 2)
-            for idx, (name, loader) in enumerate(evals):
-                if is_proto:
-                    acc = misc.accuracy(algorithm, loader, device, idx % ne)
-                else:
-                    acc = misc.accuracy(algorithm, loader, device, -1)
-                results[name + "_acc"] = acc
-                wandb.log({name + "_acc": acc})
+#             accs = []
+#             evals = zip(eval_loader_names, eval_loaders)
+#             ne = int(len(eval_loaders) / 2)
+#             for idx, (name, loader) in enumerate(evals):
+#                 if is_proto:
+#                     acc = misc.accuracy(algorithm, loader, device, idx % ne)
+#                 else:
+#                     acc = misc.accuracy(algorithm, loader, device, -1)
+#                 results[name + "_acc"] = acc
+#                 # wandb.log({name + "_acc": acc})
 
-                accs.append(acc)
-            wandb.log({'main_loss': results['loss']})
-            results_keys = sorted(results.keys())
-            if results_keys != last_results_keys and step % (checkpoint_freq * 100) == 0:
-                misc.print_row(results_keys, colwidth=12)
-                last_results_keys = results_keys
-            if step % (checkpoint_freq * 100) == 0:
-                misc.print_row([results[key] for key in results_keys], colwidth=12)
+#                 accs.append(acc)
+#             # wandb.log({'main_loss': results['loss']})
+#             results_keys = sorted(results.keys())
+#             if results_keys != last_results_keys and step % (checkpoint_freq * 100) == 0:
+#                 misc.print_row(results_keys, colwidth=12)
+#                 last_results_keys = results_keys
+#             if step % (checkpoint_freq * 100) == 0:
+#                 misc.print_row([results[key] for key in results_keys], colwidth=12)
 
-            results.update({"hparams": hparams, "args": vars(args)})
+#             results.update({"hparams": hparams, "args": vars(args)})
 
-            epochs_path = os.path.join(args.output_dir, "results.jsonl")
-            with open(epochs_path, "a") as f:
-                f.write(json.dumps(results, sort_keys=True) + "\n")
-            model_path = os.path.join(args.output_dir, "model_%d.pth" % (step))
-            #algorithm.save_model(model_path)
+#             epochs_path = os.path.join(args.output_dir, "results.jsonl")
+#             with open(epochs_path, "a") as f:
+#                 f.write(json.dumps(results, sort_keys=True) + "\n")
+#             model_path = os.path.join(args.output_dir, "model_%d.pth" % (step))
+#             #algorithm.save_model(model_path)
 
-            start_step = step + 1
-            checkpoint_vals = collections.defaultdict(lambda: [])
+#             start_step = step + 1
+#             checkpoint_vals = collections.defaultdict(lambda: [])
 
-    model_path = os.path.join(args.output_dir, "model_final.pth")
-    algorithm.save_model(model_path)
+#     model_path = os.path.join(args.output_dir, "model_final.pth")
+#     algorithm.save_model(model_path)
 
 
 def main(args):
     """ Main function calling prototype training functions as subroutine."""
+    if args.wandb:
+        wandb.init(project = 'degaa')
+        wandb.run.name = 'DE_OfficeHome'
+
     algorithm_dict = None
 
     os.makedirs(args.output_dir, exist_ok=True)
@@ -462,6 +466,7 @@ def main(args):
         device = "cuda"
     else:
         device = "cpu"
+    # device = "cpu"
 
     (
         dataset,
@@ -473,6 +478,15 @@ def main(args):
         trn_d,
         tst_d,
     ) = _setup_datasets(args, hparams)
+
+    #dataset = dalib.domainbed.datasets.OfficeHome
+    #train_loaders = len(): 4
+    #eval_loaders = len(): 8
+    # eval_weights = [None]*8
+    # eval_loader_names: ['env0_in', 'env1_in', 'env2_in', 'env3_in', 'env0_out', 'env1_out', 'env2_out', 'env3_out']
+    # steps_per_epoch: 161.83333333333334
+    # trn_d = [0, 1, 2, 3]
+    # tst_d = [] 
 
     algorithm = _setup_algorithm(
         args, algorithm_dict, device, dataset, hparams, trn_d, tst_d
@@ -497,7 +511,7 @@ def main(args):
         if do_prototype_training:
             print("::: PROTOTYPE TRAINING :::")
             print("==========================")
-            algorithm.init_prototype_training()
+            # algorithm.init_prototype_training()
             train_prototype(
                 args,
                 hparams,
@@ -539,10 +553,10 @@ def main(args):
                 phase="test",
             )
 
-            nl = len(eval_loaders)
+            nl = len(eval_loaders) # nl = 8 (4 _in and 4 out)
             for i in range(int(nl / 2)):
-                bias = int(nl / 2) if i in tst_d else 0
-                prototypes[i] = raw_prototypes[i + bias]
+                bias = int(nl / 2) if i in tst_d else 0 # bias = 0 always as tst_d is empty
+                prototypes[i] = raw_prototypes[i + bias] # equivalent to prototypes = raw_prototypes[:4]
 
             # now save prototypes to file
             prototype_file = os.path.join(args.output_dir, "prototypes.pth")
@@ -553,25 +567,26 @@ def main(args):
 
             prototypes_file = os.path.join(hparams["proto_model"], "prototypes.pth")
             prototypes = torch.load(prototypes_file)
+            # prototypes = [torch.rand(512, device=device) for _ in range(4)]
 
-        algorithm.attach_prototypes(prototypes)
-        algorithm.init_main_training(hparams)
+        # algorithm.attach_prototypes(prototypes)
+        # algorithm.init_main_training(hparams)
 
     # now doing main training
 
-    print("::: MAIN TRAINING :::")
-    print("=====================")
-    train_main(
-        args,
-        hparams,
-        dataset,
-        algorithm,
-        train_loaders,
-        device,
-        steps_per_epoch,
-        eval_loader_names,
-        eval_loaders,
-    )
+    # print("::: MAIN TRAINING :::")
+    # print("=====================")
+    # train_main(
+    #     args,
+    #     hparams,
+    #     dataset,
+    #     algorithm,
+    #     train_loaders,
+    #     device,
+    #     steps_per_epoch,
+    #     eval_loader_names,
+    #     eval_loaders,
+    # )
 
     with open(os.path.join(args.output_dir, "done"), "w") as f:
         f.write("done")
@@ -616,8 +631,9 @@ if __name__ == "__main__":
     parser.add_argument("--holdout_fraction", type=float, default=0.2)
     parser.add_argument("--model", type=str, default="resnet50")
     parser.add_argument("--batch_size", type=int, default=0)
-    parser.add_argument("--output_dir", type=str, required=True)
+    parser.add_argument("--output_dir", type=str, default="./temp_out", required=False)
     parser.add_argument("--proto_dir", type=str, required=False)
+    parser.add_argument("--wandb", action='store_true', help='enables wandb logging')
     args = parser.parse_args()
 
     # args.data_dir, args.model_dir = get_data_model_dir()
