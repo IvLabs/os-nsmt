@@ -322,7 +322,7 @@ def compute_prototype(
                     )
         else:
             # proceed one by one
-            for idx, loader in enumerate(data_loader[4:]):
+            for idx, loader in enumerate(data_loader):
                 np = 0
                 for (x, _) in loader:
 
