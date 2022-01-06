@@ -91,13 +91,14 @@ class GAA(nn.Module):
     self.input_dim = input_dim
     self.gnn_layers = ['self', 'cross'] * gnn_layers
     self.num_heads = num_heads
+    self.num_classes = num_classes
     #self.config = {**self.default_config, **config}
     #default_config = {'dim': 1024, 'GNN_layers': ['self', 'cross'] * 6}
     self.gnn = AttentionalGNN(self.input_dim, self.gnn_layers, self.num_heads)
 
     #self.final_proj = nn.Conv1d(self.input_dim, self.input_dim, kernel_size = 1, bias = True)
     self.final_proj = nn.Linear(self.input_dim, self.input_dim)
-    self.head = nn.Linear(self.input_dim, num_classes)
+    self.head = nn.Linear(self.input_dim, self.num_classes)
 
   def forward(self, src, tgt):
     #src = data['source'].double()

@@ -19,6 +19,8 @@ import torch.nn.functional as F
 from torch.utils.data.dataset import ConcatDataset
 import numpy as np
 
+
+sys.path.append('..')
 sys.path.append('')
 from common.modules.classifier import Classifier
 #from dalib.adaptation.dann import DomainAdversarialLoss, ImageClassifier
@@ -32,14 +34,16 @@ from common.utils.metric import accuracy, ConfusionMatrix
 from common.utils.meter import AverageMeter, ProgressMeter
 from common.utils.logger import CompleteLogger
 from common.utils.analysis import collect_feature, tsne, a_distance
+import network
 
 #from torchsummary import summary
 
 import wandb
 
-wandb.init(project = "degaa")
+#wandb.init(project = "degaa")
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+#device = torch.device("cpu")
 print("Total GPUs Used:", torch.cuda.device_count())
 i = 0
 print("Hardwares Used: ")
@@ -48,7 +52,8 @@ while(i < torch.cuda.device_count()):
   i = i + 1
 
 def main(args: argparse.Namespace):
-  
+  mode = 'online' if args.wandb else 'disabled'    
+  wandb.init(project='degaa', entity='flagarihant2000', mode=mode)
   wandb.run.name = 'run_' + str(args.source) + str(args.target)
 
   logger = CompleteLogger(args.log, args.phase)
@@ -114,17 +119,48 @@ def main(args: argparse.Namespace):
 
   #val_iter = ForeverDataIterator(val_loader)
 
-  backbone = models.__dict__[args.arch](pretrained = True)
-  num_classes = train_source_dataset.num_classes
+  #backbone = models.__dict__[args.arch](pretrained = True)
+  netF = network.ResBase(res_name=args.net).to(device)
+  modelpathB = 'weights/uda/office-home/A/source_B.pt'
+  
+  num_classes = args.num_classes#train_source_dataset.num_classes
 
-  classifier = ImageClassifier(backbone, num_classes = num_classes, bottleneck_dim = args.bottleneck_dim).to(device)
+  #classifier = ImageClassifier(backbone, num_classes = num_classes, bottleneck_dim = args.bottleneck_dim).to(device)
   #summary(classifier, (3, 224, 224))
 
-  optimizer = SGD(classifier.get_parameters(), args.lr, momentum = args.momentum, weight_decay = args.wd, nesterov = True)
+  args.feature_dim = netF.in_features
+  args.bottleneck_dim = 256
+
+  netB = network.feat_bootleneck(type='bn', feature_dim=args.feature_dim,bottleneck_dim=args.bottleneck_dim).to(device)
+  netC = network.feat_classifier(type='wn', class_num=args.num_classes, bottleneck_dim=args.bottleneck_dim).to(device)
+
+  modelpathF = 'weights/uda/office-home/A/source_F.pt'
+  netF.load_state_dict(torch.load(modelpathF))
+  
+  modelpathB = 'weights/uda/office-home/A/source_B.pt'
+  netB.load_state_dict(torch.load(modelpathB))
+
+  modelpathC = 'weights/uda/office-home/A/source_C.pt'
+  netC.load_state_dict(torch.load(modelpathC))
+
+  classifier = [netF, netB, netC]
+
+  #optimizer = SGD(classifier.get_parameters(), args.lr, momentum = args.momentum, weight_decay = args.wd, nesterov = True)
+  param_group = []
+  learning_rate = args.lr
+  for k, v in netF.named_parameters():
+      param_group += [{'params': v, 'lr': learning_rate*0.1}]
+  for k, v in netB.named_parameters():
+      param_group += [{'params': v, 'lr': learning_rate}]
+  for k, v in netC.named_parameters():
+      param_group += [{'params': v, 'lr': learning_rate}]   
+  optimizer = SGD(param_group)
   lr_scheduler = LambdaLR(optimizer, lambda x: args.lr * (1 + args.lr_gamma * float(x)) ** (-args.lr_decay))
 
-  gaa = GAA(input_dim = args.bottleneck_dim, num_classes = num_classes, gnn_layers = 6, num_heads = 4).to(device)
+  gaa = GAA(input_dim = args.bottleneck_dim, num_classes = num_classes + 1, gnn_layers = 6, num_heads = 4).to(device)
   #summary(gaa, [(32, 1024),(32, 1024)])
+  centroids = np.load('centroids/OfficeHome/Art_centroid.npy')
+
 
   if args.phase == 'test':
     acc1 = validate(test_loader, classifier, args)
@@ -133,7 +169,7 @@ def main(args: argparse.Namespace):
 
   best_h_score = 0.
   for epoch in range(args.epochs):
-    train(train_source_iter, train_target_iter, classifier, gaa, optimizer, lr_scheduler, epoch, args)
+    train(train_source_iter, train_target_iter, classifier, gaa, centroids, optimizer, lr_scheduler, epoch, args)
     h_score = validate(val_loader, classifier, args)
 
     torch.save(classifier.state_dict(), logger.get_checkpoint_path('latest'))
@@ -148,7 +184,12 @@ def main(args: argparse.Namespace):
 
   logger.close()
 
-def train(train_source_iter: ForeverDataIterator, train_target_iter: ForeverDataIterator, model: ImageClassifier, gaa: GAA, optimizer: SGD, lr_scheduler: LambdaLR, epoch: int, args: argparse.Namespace, num_classes = 65):
+def NearestNeighbor(known, centroids):
+    dist = torch.cdist(known, centroids, p=2)
+    knn = dist.topk(1, largest=False, dim = 0)
+    return knn.indices 
+
+def train(train_source_iter: ForeverDataIterator, train_target_iter: ForeverDataIterator, model: ImageClassifier, gaa: GAA, centroids, optimizer: SGD, lr_scheduler: LambdaLR, epoch: int, args: argparse.Namespace, num_classes = 65):
   
   batch_time = AverageMeter('Time', ':5.2f')
   data_time = AverageMeter('Data', ':5.2f')
@@ -158,10 +199,14 @@ def train(train_source_iter: ForeverDataIterator, train_target_iter: ForeverData
   progress = ProgressMeter(args.iters_per_epoch, [batch_time, data_time, losses, cls_accs, tgt_accs],
   prefix = "Epoch: [{}]".format(epoch))
   
-  
-  model.train()
+  netF, netB, netC = model[0], model[1], model[2]
+  netF.train()
+  netB.train()
+  netC.train()
   gaa.train()
   clf = LocalOutlierFactor(n_neighbors=num_classes + 1, contamination=0.1)
+  
+
   end = time.time()
   for i in range(args.iters_per_epoch):
     x_s, label_s = next(train_source_iter)
@@ -175,24 +220,31 @@ def train(train_source_iter: ForeverDataIterator, train_target_iter: ForeverData
     data_time.update(time.time() - end)
 
     x = torch.cat((x_s, x_t), dim=0)
-    y, f = model(x)
-    y_s, y_t = y.chunk(2, dim=0)
+    f = netB(netF(x))
+    #y_s, y_t = y.chunk(2, dim=0)
     f_s, f_t = f.chunk(2, dim=0)
 
     f_t_numpy = f_t.clone().cpu().detach().numpy()
     y_pred = clf.fit_predict(f_t_numpy)
     index = np.where(y_pred==-1)
-    label_t[index] = num_classes + 1
+    label_t[index] = num_classes# + 1
+
+    index1 = np.where(y_pred==1)
 
     """
     get centroids and find classes.
     """
-
+    #bottle_s = bottle(f_s)
+    #bottle_t = bottle(f_t)
+    known = f_t[index1]
+    centroids = torch.from_numpy(centroids).to(device)
+    known_idx = NearestNeighbor(known, centroids)
 
     f_s, f_t, y_s, y_t = gaa(f_s, f_t)
     y_s, y_t = nn.Softmax(dim = 1)(y_s), nn.Softmax(dim = 1)(y_t)
-
-    cls_loss_s, cls_loss_t = F.cross_entropy(y_s, label_s), F.cross_entropy(y_t, label_t)
+    #print(label_t)
+    cls_loss_s = F.cross_entropy(y_s, label_s)
+    cls_loss_t = F.cross_entropy(y_t, label_t)
     loss = cls_loss_s + cls_loss_t * args.trade_off
 
     cls_acc = accuracy(y_s, label_s)[0]
@@ -223,8 +275,10 @@ def validate(val_loader: DataLoader, model: Classifier, args: argparse.Namespace
         len(val_loader),
         [batch_time],
         prefix='Test: ')
-    model.eval()
-
+    netF, netB, netC = model[0], model[1], model[2]
+    netF.eval()
+    netB.eval()
+    netC.eval()
     with torch.no_grad():
         end = time.time()
         for i, (images, target) in enumerate(val_loader):
@@ -232,7 +286,9 @@ def validate(val_loader: DataLoader, model: Classifier, args: argparse.Namespace
             target = target.to(device)
 
             # compute output
-            output, _ = model(images)
+            #output, _ = model(images)
+            output = netC(netB(netF(images)))
+
             softmax_output = F.softmax(output, dim=1)
             softmax_output[:, -1] = args.threshold
 
@@ -271,6 +327,7 @@ if __name__ == '__main__':
   parser.add_argument('--lr', '--learning_rate', default = 0.002)
   parser.add_argument('--lr-gamma', default = 0.001)
   parser.add_argument('--bottleneck-dim', default = 2048)
+  parser.add_argument('--feature-dim', default = 256)
   parser.add_argument('--lr-decay', default = 0.75)
   parser.add_argument('--momentum', default = 0.9)
   parser.add_argument('--wd', '--weight-decay', default = 1e-3)
@@ -287,6 +344,9 @@ if __name__ == '__main__':
   parser.add_argument('--phase', type = str, default = 'train')
   parser.add_argument('--threshold', default = 0.8, type = float)
   parser.add_argument('--per-class-eval', action = 'store_true')
+  parser.add_argument('-w', '--wandb', default=0, type=int,help='Log to wandb or not [0 - dont use | 1 - use]')
+  parser.add_argument('--net', default='resnet50', type=str,help='Select vit or rn50 based (default: vit)')
+  parser.add_argument('-n', '--num_classes', default = 65)
 
   args = parser.parse_args()
   main(args)

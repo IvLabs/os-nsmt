@@ -3,6 +3,14 @@ __pycache__/
 data/
 weights/
 */__pycache__
+*/*.pyc
+model/
+wandb/
+run1/
+**/__pycache__/
+logs/
+*.npy
+centroids
 *.pyc
 model/
 OfficeHomeDataset_10072016.zip
