@@ -98,7 +98,7 @@ class GAA(nn.Module):
 
     #self.final_proj = nn.Conv1d(self.input_dim, self.input_dim, kernel_size = 1, bias = True)
     self.final_proj = nn.Linear(self.input_dim, self.input_dim)
-    self.head = nn.Linear(self.input_dim, self.num_classes)
+    # self.head = nn.Linear(self.input_dim, self.num_classes)
 
   def forward(self, src, tgt):
     #src = data['source'].double()
@@ -107,7 +107,7 @@ class GAA(nn.Module):
     src, tgt = self.gnn(src, tgt)
     
     m_src, m_tgt = self.final_proj(src), self.final_proj(tgt)
-    y_src, y_tgt = self.head(m_src), self.head(m_tgt)
+    # y_src, y_tgt = self.head(m_src), self.head(m_tgt)
 
-    return m_src, m_tgt, y_src, y_tgt # To classification head
+    return m_src, m_tgt#, y_src, y_tgt # To classification head
 
