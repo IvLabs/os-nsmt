@@ -208,13 +208,24 @@ class Proto(nn.Module):
 
         return {"proto_loss": loss, "proto_acc": accuracy}
 
-    def save_prototype(self, output_file):
+    def save_state(self, output_file, p_step):
         """ Write prototype to file. """
-        return torch.save(self.prototyper, output_file)
+        state = {
+            "start_step": p_step+1,
+            'prototyper': self.prototyper,
+            'optimizer': self.optimizer,
+            'scheduler': self.scheduler
+        }
+        return torch.save(state, output_file)
 
-    def load_prototype(self, output_file):
+    def load_state(self, output_file):
         """ Load prototype from file. """
-        self.prototyper = torch.load(output_file)
+        state = torch.load(output_file)
+        start_step = state['start_step']
+        self.prototyper = state['prototyper']
+        self.optimizer = state['optimizer']
+        self.scheduler = state['scheduler']
+        return start_step
 
     # def save_model(self, output_file):
     #     """ Write complete model to file."""
