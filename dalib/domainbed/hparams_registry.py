@@ -72,7 +72,7 @@ def _hparams(algorithm, dataset, random_state):
         hparams["proto_domains_per_iter"] = (4, 4)
 
         # number of rounds of mixup to be done
-        hparams["mixup"] = (1.0, 1.0)
+        hparams["mixup"] = (0.0, 0.0)
 
         # architecture params
         hparams["bottleneck_size"] = (1024, 1024)

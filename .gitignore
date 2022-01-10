@@ -6,8 +6,9 @@ weights/
 */*.pyc
 model/
 wandb/
-run1/
+protoruns/
 **/__pycache__/
+**/**/__pycache__/
 logs/
 *.npy
 centroids

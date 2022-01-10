@@ -34,8 +34,6 @@ while(i < torch.cuda.device_count()):
 
 print(up1)
 DATA_DIR = 'data/office-home'
-MODEL_DIR = up1 + '/models'
-OUTPUT_DIR = up1 + '/outputs'
 
 def _get_minibatches(data_loader):
     """ Wrapper around minibatch loader"""
@@ -69,7 +67,6 @@ def _setup_hparams(args):
             hparams["proto_model"] = fp
             hparams["train_prototype"] = False
 
-    hparams["model_dir"] = args.model_dir
     hparams["model"] = args.model
     if args.batch_size > 0:
         hparams["batch_size"] = args.batch_size
@@ -141,6 +138,7 @@ def _setup_datasets(args, hparams):
             length=FastDataLoader.EPOCH,
         )
         for env, _ in (in_splits + out_splits)
+        if len(env) > 0
     ]
     eval_weights = [None for _, weights in (in_splits + out_splits)]
     eval_loader_names = ["env{}_in".format(i) for i in range(len(in_splits))]
@@ -223,12 +221,17 @@ def train_prototype(
     proto_checkpoint_vals = collections.defaultdict(lambda: [])
 
     n_prototype_steps = dataset.NUM_PROTO_STEPS # 8000
+    if args.num_proto_steps > 0:
+        n_prototype_steps = args.num_proto_steps
     print("Training prototype for %d steps..." % (n_prototype_steps))
     rounds = math.ceil(num_train_domains / hparams["proto_domains_per_iter"]) # rounds = 1
     proto_checkpoint_freq = args.checkpoint_freq or dataset.PROTO_CHECKPOINT_FREQ
     dpi = hparams["proto_domains_per_iter"] # dpi=4
 
-    for p_step in range(n_prototype_steps):
+    algorithm.prototyper.train()
+
+    start_step = hparams['start_step']
+    for p_step in range(start_step, n_prototype_steps):
         step_start_time = time.time()
 
         step_vals = collections.defaultdict(lambda: [])
@@ -279,12 +282,12 @@ def train_prototype(
             checkpoint_file = os.path.join(
                 args.output_dir, "prototype_%d.pth" % (p_step)
             )
-            #algorithm.save_prototype(checkpoint_file)
+            algorithm.save_state(checkpoint_file, p_step)
 
             proto_checkpoint_vals = collections.defaultdict(lambda: [])
 
     final_proto_chkpt = os.path.join(args.output_dir, "prototype_final.pth")
-    algorithm.save_prototype(final_proto_chkpt)
+    algorithm.save_state(final_proto_chkpt, n_prototype_steps-1)
 
 
 def compute_prototype(
@@ -297,7 +300,7 @@ def compute_prototype(
 
     prototypes = {}
 
-    # algorithm.featurizer.eval() # why are we doing this, shouldn't it be prototyper.eval()?
+    algorithm.prototyper.eval()
     with torch.no_grad():
 
         if phase == "train":
@@ -505,13 +508,21 @@ def main(args):
 
             if not os.path.exists(proto_model):
                 do_prototype_training = True
+                if args.resume:
+                    args.resume = False
             if not os.path.exists(prototypes_file):
                 do_prototype_extraction = True
 
         if do_prototype_training:
             print("::: PROTOTYPE TRAINING :::")
             print("==========================")
-            # algorithm.init_prototype_training()
+            algorithm.init_prototype_training()
+            hparams["start_step"] = 0
+            if args.resume:
+                proto_model = os.path.join(args.output_dir, "prototype_final.pth")
+                hparams['start_step'] = algorithm.load_state(proto_model)
+                print("::: RESUMING TRAINING FROM STEP %d :::" % (hparams["start_step"]))
+                print("======================================")
             train_prototype(
                 args,
                 hparams,
@@ -526,7 +537,7 @@ def main(args):
             print("===============================")
 
             proto_model = os.path.join(hparams["proto_model"], "prototype_final.pth")
-            algorithm.load_prototype(proto_model)
+            algorithm.load_state(proto_model)
 
         # extract prototypes
         if do_prototype_extraction:
@@ -624,22 +635,22 @@ if __name__ == "__main__":
     parser.add_argument(
         "--checkpoint_freq",
         type=int,
-        default=10,
+        default=100,
         help="Checkpoint every N steps. Default is dataset-dependent.",
     )
     parser.add_argument("--test_envs", type=int, nargs="+", default=[-1])
-    parser.add_argument("--holdout_fraction", type=float, default=0.2)
+    parser.add_argument("--holdout_fraction", type=float, default=0.0)
     parser.add_argument("--model", type=str, default="resnet50")
-    parser.add_argument("--batch_size", type=int, default=0)
-    parser.add_argument("--output_dir", type=str, default="./temp_out", required=False)
+    parser.add_argument("--batch_size", type=int, default=12)
+    parser.add_argument("--num_proto_steps", type=int, default=0)
+    parser.add_argument("--output_dir", type=str, default="./protoruns/temp", required=False)
     parser.add_argument("--proto_dir", type=str, required=False)
+    parser.add_argument("--resume", action='store_true', help='enables resuming')
     parser.add_argument("--wandb", action='store_true', help='enables wandb logging')
     args = parser.parse_args()
 
     # args.data_dir, args.model_dir = get_data_model_dir()
     args.data_dir = DATA_DIR
-    args.model_dir = MODEL_DIR
-    # args.output_dir = OUTPUT_DIR
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
 
