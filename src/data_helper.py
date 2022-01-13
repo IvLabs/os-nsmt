@@ -28,11 +28,11 @@ def setup_datasets(args, concat=True, return_domain_idx=True):
     dataset = datasets.__dict__[args.dataset]
     source_dataset = open_set(dataset, source=True)
     target_dataset = open_set(dataset, source=False)
-
-    args.source = args.source.split(",")
-    args.target = args.target.split(",")
-    if args.dataset == "OfficeHome":
-        args.root = os.path.join(args.root, "office-home")
+    if type(args.source) == str: # added this if to avoid repeatead modification of args.source
+        args.source = args.source.split(",")
+        args.target = args.target.split(",")
+        if args.dataset == "OfficeHome":
+            args.root = os.path.join(args.root, "office-home")
 
     source_datasets = [
         source_dataset(root=args.root, task=source, download=True, transform=train_transform)
@@ -119,3 +119,4 @@ def setup_datasets(args, concat=True, return_domain_idx=True):
     # train_source_iter = ForeverDataIterator(train_source_loader)
     # train_target_iter = ForeverDataIterator(train_target_loader)
     return num_classes, train_source_loader, train_target_loader, val_loader, test_loader
+    
