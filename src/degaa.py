@@ -205,21 +205,21 @@ def main(args: argparse.Namespace):
     proto_dim = 512  # to be chznaged
     netB = network.feat_bootleneck(
         type="bn",
-        feature_dim=args.feature_dim + proto_dim,
-        bottleneck_dim=args.bottleneck_dim,
+        feature_dim=args.feature_dim + proto_dim, # 2048 + 512
+        bottleneck_dim=args.bottleneck_dim, # 256
     ).to(device)
     netC = network.feat_classifier(
-        type="wn", class_num=args.num_classes, bottleneck_dim=args.bottleneck_dim
+        type="wn", class_num=args.num_classes, bottleneck_dim=args.bottleneck_dim  # 256, #26
     ).to(device)
 
-    modelpathF = "weights/uda/office-home/A/source_F.pt"
-    # netF.load_state_dict(torch.load(modelpathF))
-
-    modelpathB = "weights/uda/office-home/A/source_B.pt"
+    modelpathF = f'{args.trained_wt}/{args.dataset}/{"".join(args.source)}/source_F.pt'
+    netF.load_state_dict(torch.load(modelpathF))
+    
+    # modelpathB = f'{args.trained_wt}/{args.dataset}/{"".join(args.source)}/source_B.pt'
     # netB.load_state_dict(torch.load(modelpathB))
 
-    modelpathC = "weights/uda/office-home/A/source_C.pt"
-    # netC.load_state_dict(torch.load(modelpathC))
+    modelpathC = f'{args.trained_wt}/{args.dataset}/{"".join(args.source)}/source_C.pt'
+    netC.load_state_dict(torch.load(modelpathC))
 
     gaa = GAA(
         input_dim=args.bottleneck_dim,
@@ -251,13 +251,11 @@ def main(args: argparse.Namespace):
     # summary(gaa, [(32, 1024),(32, 1024)])
     centroids = np.load('/home/vikash/project/rohit_lal/os-nsmt/centroids/OfficeHome/ArPr_centroid.npy')
     centroids = centroids[:num_classes-1]
-    print(centroids.shape)
-    # centroids = np.random.rand(28, 256)
+    # print(centroids.shape)
 
     prototypes_file = os.path.join("/home/vikash/project/rohit_lal/os-nsmt/protoruns/run4/prototypes.pth")
     prototypes = torch.load(prototypes_file)
-    print(prototypes.keys())
-    # prototypes = {i: torch.rand(512) for i in range(4)}
+    # print(prototypes.keys())
     prototypes = torch.stack(list(prototypes.values()), dim=0)  # shape: [4, 512]
     prototypes = prototypes.to(device)
 
@@ -461,7 +459,7 @@ def validate(val_loader: DataLoader, model: Classifier, prototypes, args: argpar
             _, preds= torch.max(softmax_output, 1)
             if start_test:
                 all_output = preds.float().cpu()
-                all_label = target.float()
+                all_label = target.float().cpu()
                 start_test = False
             else:
                 all_output = torch.cat((all_output, preds.float().cpu()), 0)
@@ -478,6 +476,7 @@ def validate(val_loader: DataLoader, model: Classifier, prototypes, args: argpar
 
             if i % args.print_freq == 0:
                 progress.display(i)
+            
 
 
         matrix = confusion_matrix(all_label, all_output)
@@ -531,6 +530,7 @@ if __name__ == "__main__":
     parser.add_argument("--tensorboard", action='store_true', help='enables tensorboard logging')
     parser.add_argument("--wandb", action="store_true", help="enables wandb logging")
     parser.add_argument("--output_dir", default="./adapt/run1", help="enables wandb logging")
+    parser.add_argument('-l', '--trained_wt', default='weights/uda', type=str,help='Load src')
     parser.add_argument(
         "--net",
         default="resnet50",

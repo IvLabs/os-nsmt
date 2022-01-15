@@ -20,3 +20,7 @@ dalib/domainbed/__pycache__/*
 degaa
 **/tensorboard/
 san/
+knn_cuda/
+kNN-CUDA/
+logs/
+
