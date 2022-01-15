@@ -5,7 +5,6 @@ import random
 import torch
 import torch.nn as nn
 from . import networks
-from .algorithms import ERM
 from .lib.misc import cross_entropy, random_pairs_of_minibatches
 from .lib.prototype import prototypical_loss
 
@@ -49,24 +48,25 @@ class Proto(nn.Module):
 
         self.hparams = hparams
 
-        self.featurizer = networks.Featurizer(input_shape, self.hparams)
-        self.classifier = networks.Classifier(
-            self.featurizer.n_outputs,
-            num_classes,
-            self.hparams['nonlinear_classifier'])
-        self.network = nn.Sequential(self.featurizer, self.classifier)
-        self.optimizer = torch.optim.Adam(
-            self.network.parameters(),
-            lr=self.hparams["lr"],
-            weight_decay=self.hparams['weight_decay']
-        )
+        # self.featurizer = networks.Featurizer(input_shape, self.hparams)
+        # self.classifier = networks.Classifier(
+        #     self.featurizer.n_outputs,
+        #     num_classes,
+        #     self.hparams['nonlinear_classifier'])
+        # self.network = nn.Sequential(self.featurizer, self.classifier)
+        # self.optimizer = torch.optim.Adam(
+        #     self.network.parameters(),
+        #     lr=self.hparams["lr"],
+        #     weight_decay=self.hparams['weight_decay']
+        # )
 
         # initializing constants
         self.nd = num_domains
         self.nc = num_classes
 
         # initializing architecture parameters
-        self.ft_output_size = self.featurizer.n_outputs
+        featurizer = networks.Featurizer(input_shape, self.hparams)
+        self.ft_output_size = featurizer.n_outputs
         self.proto_size = int(self.ft_output_size * 0.25)
         self.feat_size = int(self.ft_output_size)
 
@@ -75,53 +75,53 @@ class Proto(nn.Module):
         self.epochs = hparams["n_steps"]
         self.proto_epochs = hparams["n_steps_proto"]
 
-        self.kernel_type = "gaussian"
+        # self.kernel_type = "gaussian"
 
         # initializing prototyper
         if use_relu:
             self.prototyper = nn.Sequential(
-                networks.Featurizer(input_shape, self.hparams),
+                featurizer,
                 nn.ReLU(inplace=False),
                 nn.Linear(self.ft_output_size, self.proto_size),
                 nn.ReLU(inplace=False),
             )
         else:
             self.prototyper = nn.Sequential(
-                networks.Featurizer(input_shape, self.hparams),
+                featurizer,
                 nn.Linear(self.ft_output_size, self.proto_size),
             )
 
-        # initializing featurizer
-        if use_relu:
-            self.featurizer = nn.Sequential(
-                networks.Featurizer(input_shape, self.hparams),
-                nn.ReLU(inplace=False),
-                nn.Linear(self.ft_output_size, self.feat_size),
-                nn.ReLU(inplace=False),
-            )
-        else:
-            self.featurizer = nn.Sequential(
-                networks.Featurizer(input_shape, self.hparams),
-                nn.Linear(self.ft_output_size, self.feat_size),
-            )
+        # # initializing featurizer
+        # if use_relu:
+        #     self.featurizer = nn.Sequential(
+        #         networks.Featurizer(input_shape, self.hparams),
+        #         nn.ReLU(inplace=False),
+        #         nn.Linear(self.ft_output_size, self.feat_size),
+        #         nn.ReLU(inplace=False),
+        #     )
+        # else:
+        #     self.featurizer = nn.Sequential(
+        #         networks.Featurizer(input_shape, self.hparams),
+        #         nn.Linear(self.ft_output_size, self.feat_size),
+        #     )
 
-        # initializing bottleneck architecture on top of prototyper
-        if use_relu:
-            self.bottleneck = nn.Sequential(
-                nn.Linear(
-                    self.feat_size + self.proto_size, self.hparams["bottleneck_size"]
-                ),
-                nn.ReLU(inplace=False),
-            )
-        else:
-            self.bottleneck = nn.Sequential(
-                nn.Linear(
-                    self.feat_size + self.proto_size, self.hparams["bottleneck_size"]
-                )
-            )
+        # # initializing bottleneck architecture on top of prototyper
+        # if use_relu:
+        #     self.bottleneck = nn.Sequential(
+        #         nn.Linear(
+        #             self.feat_size + self.proto_size, self.hparams["bottleneck_size"]
+        #         ),
+        #         nn.ReLU(inplace=False),
+        #     )
+        # else:
+        #     self.bottleneck = nn.Sequential(
+        #         nn.Linear(
+        #             self.feat_size + self.proto_size, self.hparams["bottleneck_size"]
+        #         )
+        #     )
 
-        # initalizing classifier
-        self.classifier = nn.Linear(self.hparams["bottleneck_size"], num_classes)
+        # # initalizing classifier
+        # self.classifier = nn.Linear(self.hparams["bottleneck_size"], num_classes)
 
         # initialize parameters based on doing prototype training
         # or not
@@ -130,28 +130,28 @@ class Proto(nn.Module):
             hparams["proto_model"] is None or hparams["train_prototype"]
         )
 
-        if do_prototype_training:
-            params = self.prototyper.parameters()
-            self.optimizer = torch.optim.Adam(
-                params,
-                lr=self.hparams["proto_lr"],
-                weight_decay=self.hparams["proto_weight_decay"],
-            )
-            self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-                self.optimizer, self.proto_epochs
-            )
-        else:
-            params = (
-                list(self.bottleneck.parameters())
-                + list(self.classifier.parameters())
-                + list(self.featurizer.parameters())
-            )
-            self.optimizer = torch.optim.Adam(
-                params, lr=self.hparams["lr"], weight_decay=self.hparams["weight_decay"]
-            )
-            self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-                self.optimizer, self.epochs
-            )
+        # if do_prototype_training:
+        params = self.prototyper.parameters()
+        self.optimizer = torch.optim.Adam(
+            params,
+            lr=self.hparams["proto_lr"],
+            weight_decay=self.hparams["proto_weight_decay"],
+        )
+        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            self.optimizer, self.proto_epochs
+        )
+        # else:
+        #     params = (
+        #         list(self.bottleneck.parameters())
+        #         + list(self.classifier.parameters())
+        #         + list(self.featurizer.parameters())
+        #     )
+        #     self.optimizer = torch.optim.Adam(
+        #         params, lr=self.hparams["lr"], weight_decay=self.hparams["weight_decay"]
+        #     )
+        #     self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        #         self.optimizer, self.epochs
+        #     )
 
     def prototype_update(self, minibatches):
         """ Update to train prototypical network. """
@@ -208,171 +208,182 @@ class Proto(nn.Module):
 
         return {"proto_loss": loss, "proto_acc": accuracy}
 
-    def save_prototype(self, output_file):
+    def save_state(self, output_file, p_step):
         """ Write prototype to file. """
-        return torch.save(self.prototyper, output_file)
+        state = {
+            "start_step": p_step+1,
+            'prototyper': self.prototyper,
+            'optimizer': self.optimizer,
+            'scheduler': self.scheduler
+        }
+        return torch.save(state, output_file)
 
-    def load_prototype(self, output_file):
+    def load_state(self, output_file):
         """ Load prototype from file. """
-        self.prototyper = torch.load(output_file)
+        state = torch.load(output_file)
+        start_step = state['start_step']
+        self.prototyper = state['prototyper']
+        self.optimizer = state['optimizer']
+        self.scheduler = state['scheduler']
+        return start_step
 
-    def save_model(self, output_file):
-        """ Write complete model to file."""
-        model = [self.prototyper, self.bottleneck, self.featurizer, self.classifier]
-        return torch.save(model, output_file)
+    # def save_model(self, output_file):
+    #     """ Write complete model to file."""
+    #     model = [self.prototyper, self.bottleneck, self.featurizer, self.classifier]
+    #     return torch.save(model, output_file)
 
     def compute_average_prototype(self, x):
         """ Compute prototype feature and average it."""
         x = self.prototyper(x)
         return torch.mean(x, dim=0).detach().cpu()
 
-    def attach_prototypes(self, prototypes):
-        """ Add prototypes to model. """
-        self.prototypes = prototypes
+    # def attach_prototypes(self, prototypes):
+    #     """ Add prototypes to model. """
+    #     self.prototypes = prototypes
 
     def init_prototype_training(self):
         """ Set up model to train prototype. """
 
-        self.bottleneck.to("cpu")
-        self.featurizer.to("cpu")
-        self.classifier.to("cpu")
+        # self.bottleneck.to("cpu")
+        # self.featurizer.to("cpu")
+        # self.classifier.to("cpu")
 
         self.prototyper.to("cuda")
         self.prototyper = nn.parallel.DataParallel(self.prototyper).cuda()
 
-    def init_main_training(self, hparams):
-        """ Discard earlier optimizers and prepare for main training. """
+    # def init_main_training(self, hparams):
+    #     """ Discard earlier optimizers and prepare for main training. """
 
-        # first unload prototyper
-        self.prototyper.to("cpu")
+    #     # first unload prototyper
+    #     self.prototyper.to("cpu")
 
-        self.bottleneck.to("cuda")
-        self.featurizer.to("cuda")
-        self.classifier.to("cuda")
+    #     self.bottleneck.to("cuda")
+    #     self.featurizer.to("cuda")
+    #     self.classifier.to("cuda")
 
-        self.bottleneck = nn.parallel.DataParallel(self.bottleneck)
-        self.featurizer = nn.parallel.DataParallel(self.featurizer)
-        self.classifier = nn.parallel.DataParallel(self.classifier)
+    #     self.bottleneck = nn.parallel.DataParallel(self.bottleneck)
+    #     self.featurizer = nn.parallel.DataParallel(self.featurizer)
+    #     self.classifier = nn.parallel.DataParallel(self.classifier)
 
-        params = (
-            list(self.bottleneck.parameters())
-            + list(self.classifier.parameters())
-            + list(self.featurizer.parameters())
-        )
+    #     params = (
+    #         list(self.bottleneck.parameters())
+    #         + list(self.classifier.parameters())
+    #         + list(self.featurizer.parameters())
+    #     )
 
-        self.optimizer = torch.optim.Adam(
-            params, lr=self.hparams["lr"], weight_decay=self.hparams["weight_decay"]
-        )
+    #     self.optimizer = torch.optim.Adam(
+    #         params, lr=self.hparams["lr"], weight_decay=self.hparams["weight_decay"]
+    #     )
 
-        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            self.optimizer, self.epochs
-        )
+    #     self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+    #         self.optimizer, self.epochs
+    #     )
 
-    def predict(self, x, idx, device):
-        """ Forward function to compute output. """
+    # def predict(self, x, idx, device):
+    #     """ Forward function to compute output. """
 
-        bs = x.shape[0]
-        proto_tile = self.prototypes[idx].to(device).unsqueeze(0).repeat(bs, 1)
+    #     bs = x.shape[0]
+    #     proto_tile = self.prototypes[idx].to(device).unsqueeze(0).repeat(bs, 1)
 
-        x = self.featurizer(x)
-        x = torch.cat([x, proto_tile], dim=1)
-        x = self.bottleneck(x)
-        x = self.classifier(x)
+    #     x = self.featurizer(x)
+    #     x = torch.cat([x, proto_tile], dim=1)
+    #     x = self.bottleneck(x)
+    #     x = self.classifier(x)
 
-        return x
+    #     return x
 
-    def update(self, minibatches, device, base=0):
-        """ Update step to be applied during main training."""
-        all_x = torch.cat([x for x, y in minibatches])
-        all_y = torch.cat([y for x, y in minibatches])
-        nmb = len(minibatches)
+    # def update(self, minibatches, device, base=0):
+    #     """ Update step to be applied during main training."""
+    #     all_x = torch.cat([x for x, y in minibatches])
+    #     all_y = torch.cat([y for x, y in minibatches])
+    #     nmb = len(minibatches) # 4
 
-        all_proto = None
+    #     all_proto = None
 
-        for idx in range(len(minibatches)):
-            bs = minibatches[idx][0].shape[0]
-            px = self.prototypes[base + idx].to(device).unsqueeze(0).repeat(bs, 1)
+    #     for idx in range(len(minibatches)):
+    #         bs = minibatches[idx][0].shape[0]
+    #         px = self.prototypes[base + idx].to(device).unsqueeze(0).repeat(bs, 1) # px.shape=[12,512]
 
-            if all_proto is None:
-                all_proto = px
-            else:
-                all_proto = torch.cat([all_proto, px], dim=0)
+    #         if all_proto is None:
+    #             all_proto = px
+    #         else:
+    #             all_proto = torch.cat([all_proto, px], dim=0)
 
-        x = self.featurizer(all_x)
-        bs = x.size(0)/nmb
-        penalty = 0.0
+    #     x = self.featurizer(all_x)
+    #     bs = x.size(0)/nmb
+    #     penalty = 0.0
 
-        def cu(y):
-            return min(y, x.size(0))
+    #     def cu(y):
+    #         return min(y, x.size(0))
 
-        # adding mmd loss
-        if self.hparams["mmd_gamma"] > 0.0:
-            st_i = 0
-            for i in range(nmb):
-                en_i = cu(st_i + minibatches[i][0].size(0))
-                st_j = cu(en_i)
-                for j in range(i + 1, nmb):
-                    en_j = cu(st_j + minibatches[j][0].size(0))
-                    mmd_ij = self.mmd(x[st_i : en_i], x[st_j : en_j])
-                    penalty += mmd_ij
-                    st_j = en_j
-                st_i = en_i
+    #     # adding mmd loss
+    #     if self.hparams["mmd_gamma"] > 0.0:
+    #         st_i = 0
+    #         for i in range(nmb):
+    #             en_i = cu(st_i + minibatches[i][0].size(0))
+    #             st_j = cu(en_i)
+    #             for j in range(i + 1, nmb):
+    #                 en_j = cu(st_j + minibatches[j][0].size(0))
+    #                 mmd_ij = self.mmd(x[st_i : en_i], x[st_j : en_j])
+    #                 penalty += mmd_ij
+    #                 st_j = en_j
+    #             st_i = en_i
 
-        if nmb > 1:
-            penalty /= nmb * (nmb - 1) / 2
+    #     if nmb > 1:
+    #         penalty /= nmb * (nmb - 1) / 2
 
-        x = torch.cat([x, all_proto], dim=1)
-        x = self.bottleneck(x)
-        x = self.classifier(x)
+    #     x = torch.cat([x, all_proto], dim=1)
+    #     x = self.bottleneck(x)
+    #     x = self.classifier(x)
 
         
-        loss = cross_entropy(x, all_y)
-        if self.hparams["mmd_gamma"] > 0:
-            loss += self.hparams["mmd_gamma"] * penalty
+    #     loss = cross_entropy(x, all_y)
+    #     if self.hparams["mmd_gamma"] > 0:
+    #         loss += self.hparams["mmd_gamma"] * penalty
 
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
-        self.scheduler.step()
+    #     self.optimizer.zero_grad()
+    #     loss.backward()
+    #     self.optimizer.step()
+    #     self.scheduler.step()
 
-        return {"loss": loss.item()}
+    #     return {"loss": loss.item()}
     
-    # adding MMD functionality 
-    def my_cdist(self, x1, x2):
-        x1_norm = x1.pow(2).sum(dim=-1, keepdim=True)
-        x2_norm = x2.pow(2).sum(dim=-1, keepdim=True)
-        res = torch.addmm(
-            x2_norm.transpose(-2, -1), x1, x2.transpose(-2, -1), alpha=-2
-        ).add_(x1_norm)
-        return res.clamp_min_(1e-30)
+    # # adding MMD functionality 
+    # def my_cdist(self, x1, x2):
+    #     x1_norm = x1.pow(2).sum(dim=-1, keepdim=True)
+    #     x2_norm = x2.pow(2).sum(dim=-1, keepdim=True)
+    #     res = torch.addmm(
+    #         x2_norm.transpose(-2, -1), x1, x2.transpose(-2, -1), alpha=-2
+    #     ).add_(x1_norm)
+    #     return res.clamp_min_(1e-30)
 
-    def gaussian_kernel(self, x, y, gamma=(0.001, 0.01, 0.1, 1, 10, 100, 1000)):
-        D = self.my_cdist(x, y)
-        K = torch.zeros_like(D)
+    # def gaussian_kernel(self, x, y, gamma=(0.001, 0.01, 0.1, 1, 10, 100, 1000)):
+    #     D = self.my_cdist(x, y)
+    #     K = torch.zeros_like(D)
 
-        for g in list(gamma):
-            K.add_(torch.exp(D.mul(-g)))
+    #     for g in list(gamma):
+    #         K.add_(torch.exp(D.mul(-g)))
 
-        return K
+    #     return K
 
-    def mmd(self, x, y):
-        if self.kernel_type == "gaussian":
-            Kxx = self.gaussian_kernel(x, x).mean()
-            Kyy = self.gaussian_kernel(y, y).mean()
-            Kxy = self.gaussian_kernel(x, y).mean()
-            return Kxx + Kyy - 2 * Kxy
-        else:
-            mean_x = x.mean(0, keepdim=True)
-            mean_y = y.mean(0, keepdim=True)
-            cent_x = x - mean_x
-            cent_y = y - mean_y
-            cova_x = (cent_x.t() @ cent_x) / (len(x) - 1)
-            cova_y = (cent_y.t() @ cent_y) / (len(y) - 1)
+    # def mmd(self, x, y):
+    #     if self.kernel_type == "gaussian":
+    #         Kxx = self.gaussian_kernel(x, x).mean()
+    #         Kyy = self.gaussian_kernel(y, y).mean()
+    #         Kxy = self.gaussian_kernel(x, y).mean()
+    #         return Kxx + Kyy - 2 * Kxy
+    #     else:
+    #         mean_x = x.mean(0, keepdim=True)
+    #         mean_y = y.mean(0, keepdim=True)
+    #         cent_x = x - mean_x
+    #         cent_y = y - mean_y
+    #         cova_x = (cent_x.t() @ cent_x) / (len(x) - 1)
+    #         cova_y = (cent_y.t() @ cent_y) / (len(y) - 1)
 
-            mean_diff = (mean_x - mean_y).pow(2).mean()
-            cova_diff = (cova_x - cova_y).pow(2).mean()
+    #         mean_diff = (mean_x - mean_y).pow(2).mean()
+    #         cova_diff = (cova_x - cova_y).pow(2).mean()
 
-            return mean_diff + cova_diff
+    #         return mean_diff + cova_diff
 
 
 class Proto_NoReLU(Proto):

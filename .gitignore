@@ -6,10 +6,13 @@ weights/
 */*.pyc
 model/
 wandb/
-run1/
+protoruns/
 **/__pycache__/
+**/**/__pycache__/
 logs/
 *.npy
 centroids
 *.pyc
 model/
+OfficeHomeDataset_10072016.zip
+dalib/domainbed/__pycache__/*

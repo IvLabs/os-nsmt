@@ -51,9 +51,11 @@ class OfficeHome(ImageList):
                'Fan', 'Ruler', 'Pan', 'Screwdriver', 'Trash_Can', 'Printer', 'Speaker', 'Eraser', 'Bucket', 'Chair',
                'Calendar', 'Calculator', 'Flowers', 'Lamp_Shade', 'Spoon', 'Candles', 'Clipboards', 'Scissors', 'TV',
                'Curtains', 'Fork', 'Soda', 'Table', 'Knives', 'Oven', 'Refrigerator', 'Marker']
+    CLASSES = sorted(CLASSES)
 
     def __init__(self, root: str, task: str, download: Optional[bool] = False, **kwargs):
         assert task in self.image_list
+        self.domain_index = sorted(list(self.image_list.keys())).index(task)
         data_list_file = os.path.join(root, self.image_list[task])
 
         if download:
