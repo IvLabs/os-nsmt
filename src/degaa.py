@@ -1,5 +1,6 @@
 import random
 import time
+from typing import Counter
 import warnings
 import sys
 import argparse
@@ -37,14 +38,17 @@ from common.utils.meter import AverageMeter, ProgressMeter
 from common.utils.logger import CompleteLogger
 from common.utils.analysis import collect_feature, tsne, a_distance
 import network
-
+from data_helper import setup_datasets
+from torch.utils.tensorboard import SummaryWriter
 # from torchsummary import summary
 
 import wandb
 
+warnings.filterwarnings("ignore")
+
 # wandb.init(project = "degaa")
 
-# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # device = torch.device("cpu")
 print("Total GPUs Used:", torch.cuda.device_count())
 i = 0
@@ -54,28 +58,34 @@ while i < torch.cuda.device_count():
     i = i + 1
 
 
+counter = 0
+
 def main(args: argparse.Namespace):
     if args.wandb:
         mode = "online" if args.wandb else "disabled"
         wandb.init(project="degaa", entity="flagarihant2000", mode=mode)
         wandb.run.name = "run_" + str(args.source) + str(args.target)
+    if args.tensorboard:
+        global writer
+        writer = SummaryWriter(os.path.join(args.output_dir,"tensorboard"))
 
     logger = CompleteLogger(args.log, args.phase)
 
     if args.seed is not None:
         random.seed(args.seed)
         torch.manual_seed(args.seed)
-        cudnn.deterministic = True
-        warnings.warn(
-            "You have chosen to seed training. "
-            "This will turn on the CUDNN deterministic setting, "
-            "which can slow down your training considerably! "
-            "You may see unexpected behavior when restarting "
-            "from checkpoints."
-        )
+        # cudnn.deterministic = True
+        # warnings.warn(
+        #     "You have chosen to seed training. "
+        #     "This will turn on the CUDNN deterministic setting, "
+        #     "which can slow down your training considerably! "
+        #     "You may see unexpected behavior when restarting "
+        #     "from checkpoints."
+        # )
 
         cudnn.benchmark = True
 
+    '''
     normalize = T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 
     train_transform = T.Compose(
@@ -169,18 +179,21 @@ def main(args: argparse.Namespace):
         )
     else:
         test_loader = val_loader
+    '''
+    # val_iter = ForeverDataIterator(val_loader)
 
+    num_classes, train_source_loader, train_target_loader, val_loader, test_loader = setup_datasets(args, concat=True)
+    # num_classes = num_classes - 1
+    print(f"Num Classes: {num_classes}")
     train_source_iter = ForeverDataIterator(train_source_loader)
     train_target_iter = ForeverDataIterator(train_target_loader)
-
-    # val_iter = ForeverDataIterator(val_loader)
 
     # backbone = models.__dict__[args.arch](pretrained = True)
     netF = network.ResBase(res_name=args.net).to(device)
     modelpathB = "weights/uda/office-home/A/source_B.pt"
 
     # num_classes = args.num_classes  # train_source_dataset.num_classes
-    num_classes = len(train_source_dataset.datasets[0].classes)
+    # num_classes = len(train_source_dataset.datasets[0].classes)
     args.num_classes = num_classes
 
     # classifier = ImageClassifier(backbone, num_classes = num_classes, bottleneck_dim = args.bottleneck_dim).to(device)
@@ -236,13 +249,17 @@ def main(args: argparse.Namespace):
 
 
     # summary(gaa, [(32, 1024),(32, 1024)])
-    # centroids = np.load('centroids/OfficeHome/Art_centroid.npy')
-    centroids = np.random.rand(28, 256)
+    centroids = np.load('/home/vikash/project/rohit_lal/os-nsmt/centroids/OfficeHome/ArPr_centroid.npy')
+    centroids = centroids[:num_classes-1]
+    print(centroids.shape)
+    # centroids = np.random.rand(28, 256)
 
-    # prototypes_file = os.path.join("C:\Users\abdul\Projects\os-nsmt\temp_out\prototypes.pth")
-    # prototypes = torch.load(prototypes_file)
-    prototypes = {i: torch.rand(512) for i in range(4)}
+    prototypes_file = os.path.join("/home/vikash/project/rohit_lal/os-nsmt/protoruns/run4/prototypes.pth")
+    prototypes = torch.load(prototypes_file)
+    print(prototypes.keys())
+    # prototypes = {i: torch.rand(512) for i in range(4)}
     prototypes = torch.stack(list(prototypes.values()), dim=0)  # shape: [4, 512]
+    prototypes = prototypes.to(device)
 
     if args.phase == "test":
         acc1 = validate(test_loader, classifier, args)
@@ -262,14 +279,18 @@ def main(args: argparse.Namespace):
             lr_scheduler,
             epoch,
             args,
+            num_classes
         )
         h_score = validate(val_loader, classifier, prototypes, args)
 
-        torch.save(classifier.state_dict(), logger.get_checkpoint_path("latest"))
         if h_score > best_h_score:
-            shutil.copy(
-                logger.get_checkpoint_path("latest"), logger.get_checkpoint_path("best")
-            )
+            # torch.save(classifier, logger.get_checkpoint_path("latest"))             
+            torch.save(netF, osp.join(logger.get_checkpoint_path("latest"), "source_F.pt"))
+            torch.save(netB, osp.join(logger.get_checkpoint_path("latest"), "source_B.pt"))
+            torch.save(netC, osp.join(logger.get_checkpoint_path("latest"), "source_C.pt"))
+            # shutil.copy(
+            #     logger.get_checkpoint_path("latest"), logger.get_checkpoint_path("best")
+            # )
 
     print("best_h_score = {:3.1f}".format(best_h_score))
 
@@ -278,11 +299,12 @@ def main(args: argparse.Namespace):
     print("test_h_score = {:3.1f}".format(h_score))
 
     logger.close()
+    writer.close()
 
 
 def NearestNeighbor(known, centroids):
-    dist = torch.cdist(known, centroids, p=2)
-    knn = dist.topk(1, largest=False, dim=0)
+    dist = torch.cdist(known, centroids.to(torch.float32), p=2)
+    knn = dist.topk(1, largest=False, dim=1) # dim=1 to access dominant in each of these inlier vectors
     return knn.indices
 
 
@@ -299,6 +321,8 @@ def train(
     args: argparse.Namespace,
     num_classes=65,
 ):
+
+    global counter
 
     batch_time = AverageMeter("Time", ":5.2f")
     data_time = AverageMeter("Data", ":5.2f")
@@ -348,12 +372,14 @@ def train(
         # y_s, y_t = y.chunk(2, dim=0)
         f_s, f_t = f.chunk(2, dim=0)
 
+        label_t = torch.empty_like(label_t) # shape [bs]
         f_t_numpy = f_t.clone().cpu().detach().numpy()
         y_pred = clf.fit_predict(f_t_numpy)
-        index = np.where(y_pred == -1)  # for outliers
-        label_t[index] = num_classes  # + 1
+        index = np.where(y_pred == -1)  # for n outliers, shape [n, ..]
+        label_t[index] = num_classes - 1 # 25 for all outliers !!
+        # [.., .., ..., 25, .., 25, ..,  25, ..]
 
-        index1 = np.where(y_pred == 1)  # for known classes
+        index1 = np.where(y_pred == 1)  # for known classes [bs-n, ...]
 
         """
     get centroids and find classes.
@@ -361,9 +387,12 @@ def train(
         # bottle_s = bottle(f_s)
         # bottle_t = bottle(f_t)
         known = f_t[index1]
-        centroids = torch.from_numpy(centroids).to(device)
+        if not isinstance(centroids, torch.Tensor):
+            centroids = torch.from_numpy(centroids).to(device)
         known_idx = NearestNeighbor(known, centroids)
-        label_t[index1] = known_idx  # asigning target domain classes on bsis of KNN
+        label_t[index1] = known_idx.squeeze()  # asigning target domain classes on bsis of KNN
+                                                # values from 0 to 24 for all known classes 
+                                                # # [5, 6, 0, 25, 24, 25, 3, 25, 6]
 
         f_s, f_t = gaa(f_s, f_t)
         y_s, y_t = netC(f_s), netC(f_t)
@@ -388,10 +417,15 @@ def train(
         batch_time.update(time.time() - end)
         end = time.time()
 
+        counter = counter + 1
         if args.wandb:
             wandb.log(
                 {"accuracy_source": cls_acc, "accuracy_target": tgt_acc, "loss": loss}
             )
+        if args.tensorboard:
+            writer.add_scalar('accuracy_source', cls_acc, counter)
+            writer.add_scalar('accuracy_target', cls_acc, counter)
+            writer.add_scalar('loss', loss, counter)
 
         if i % args.print_freq == 0:
             progress.display(i)
@@ -444,7 +478,6 @@ def validate(val_loader: DataLoader, model: Classifier, prototypes, args: argpar
 
             if i % args.print_freq == 0:
                 progress.display(i)
-            break
 
 
         matrix = confusion_matrix(all_label, all_output)
@@ -455,7 +488,8 @@ def validate(val_loader: DataLoader, model: Classifier, prototypes, args: argpar
         all_acc = np.mean(accs).item() * 100
         known = np.mean(accs[:-1]).item() * 100
         unknown = accs[-1].item() * 100
-        h_score = 2 * known * unknown / (known + unknown)
+        h_score = 2 * np.divide(np.multiply(known, unknown), np.add(known, unknown))
+        # h_score = 2 * known * unknown / (known + unknown)
         if args.per_class_eval:
             print(confmat.format(classes))
         print(
@@ -476,13 +510,13 @@ if __name__ == "__main__":
     parser.add_argument("-b", "--batch_size", type=int, default=32)
     parser.add_argument("--lr", "--learning_rate", default=0.002)
     parser.add_argument("--lr-gamma", default=0.001)
-    parser.add_argument("--bottleneck-dim", default=2048)
+    parser.add_argument("--bottleneck-dim", default=256)
     parser.add_argument("--feature-dim", default=256)
     parser.add_argument("--lr-decay", default=0.75)
     parser.add_argument("--momentum", default=0.9)
     parser.add_argument("--wd", "--weight-decay", default=1e-3)
     parser.add_argument("-j", "--workers", default=0)
-    parser.add_argument("--epochs", type=int, default=0)
+    parser.add_argument("--epochs", type=int, default=1000)
     parser.add_argument("--root", default="./data")
     parser.add_argument("-s", "--source", help="source domain(s)", default="Ar,Pr")
     parser.add_argument("-t", "--target", help="target domain(s)", default="Cl,Rw")
@@ -490,18 +524,20 @@ if __name__ == "__main__":
     parser.add_argument("-i", "--iters-per-epoch", default=500, type=int)
     parser.add_argument("-p", "--print-freq", default=100, type=int)
     parser.add_argument("--log", type=str, default="degaa")
-    parser.add_argument("--seed", default=None, type=int)
+    parser.add_argument("--seed", default=0, type=int)
     parser.add_argument("--phase", type=str, default="train")
     parser.add_argument("--threshold", default=0.8, type=float)
     parser.add_argument("--per-class-eval", action="store_true")
+    parser.add_argument("--tensorboard", action='store_true', help='enables tensorboard logging')
     parser.add_argument("--wandb", action="store_true", help="enables wandb logging")
+    parser.add_argument("--output_dir", default="./adapt/run1", help="enables wandb logging")
     parser.add_argument(
         "--net",
         default="resnet50",
         type=str,
         help="Select vit or rn50 based (default: vit)",
     )
-    parser.add_argument("-n", "--num_classes", default=65)
+    # parser.add_argument("-n", "--num_classes", default=26)
 
     args = parser.parse_args()
     main(args)

@@ -2,10 +2,10 @@
 # python image_source_final.py --output san --gpu_id 0 --dset office --max_epoch 50 --s 0 --net vit
 
 #office-home
-python image_source_final.py --output weights --gpu_id 0 --dset office-home --max_epoch 50 --s 0 --net resnet50
-python image_source_final.py --output weights --gpu_id 0 --dset office-home --max_epoch 50 --s 1 --net resnet50
-python image_source_final.py --output weights --gpu_id 1 --dset office-home --max_epoch 50 --s 2 --net resnet50
-python image_source_final.py --output weights --gpu_id 0 --dset office-home --max_epoch 50 --s 3 --net resnet50
+python image_source_final.py --output weights --gpu_id 2 --batch_size 128 --dataset OfficeHome --max_epoch 50 --source Ar,Pr --target Cl,Rw --wandb 0
+# python image_source_final.py --output weights --gpu_id 0 --dataset OfficeHome --max_epoch 50 --source "Ar,Pr" --target "Cl,Rw"
+# python image_source_final.py --output weights --gpu_id 1 --dataset OfficeHome --max_epoch 50 --source "Ar,Pr" --target "Cl,Rw"
+# python image_source_final.py --output weights --gpu_id 0 --dataset OfficeHome --max_epoch 50 --source "Ar,Pr" --target "Cl,Rw"
 
 #pacs
 # python image_source_final.py --output san --gpu_id 0 --dset pacs --max_epoch 50 --s 0 --net vit
