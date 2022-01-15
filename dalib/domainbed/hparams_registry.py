@@ -27,6 +27,7 @@ def _hparams(algorithm, dataset, random_state):
     hparams["dataset"] = (dataset, dataset)
     hparams["domains_per_iter"] = (4, 4)
     hparams["data_parallel"] = (True, True)
+    hparams["input_shape"] = ((3, 224, 224,), (3, 224, 224,))
 
     if dataset in RESNET_DATASETS:
         hparams["lr"] = (1e-4, 10 ** random_state.uniform(-5.5, -3.5))
@@ -44,6 +45,7 @@ def _hparams(algorithm, dataset, random_state):
         hparams["weight_decay"] = (1e-4, 10 ** random_state.uniform(-4, -4))
 
     hparams["class_balanced"] = (False, False)
+    hparams["num_proto_extraction_points"] = (500, 500)
 
     if algorithm in ["DANN", "CDANN"]:
 

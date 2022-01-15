@@ -9,6 +9,7 @@ wandb/
 protoruns/
 **/__pycache__/
 **/**/__pycache__/
+**/**/**/__pycache__/
 logs/
 *.npy
 centroids
@@ -16,3 +17,6 @@ centroids
 model/
 OfficeHomeDataset_10072016.zip
 dalib/domainbed/__pycache__/*
+degaa
+**/tensorboard/
+san/

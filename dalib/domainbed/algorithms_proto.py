@@ -44,6 +44,7 @@ class Proto(nn.Module):
     """
 
     def __init__(self, input_shape, num_classes, num_domains, hparams, use_relu=True):
+    # def __init__(self, hparams, use_relu=True):
         super(Proto, self).__init__()
 
         self.hparams = hparams
@@ -60,19 +61,14 @@ class Proto(nn.Module):
         #     weight_decay=self.hparams['weight_decay']
         # )
 
-        # initializing constants
-        self.nd = num_domains
-        self.nc = num_classes
-
         # initializing architecture parameters
-        featurizer = networks.Featurizer(input_shape, self.hparams)
+        featurizer = networks.Featurizer(hparams["input_shape"], self.hparams)
         self.ft_output_size = featurizer.n_outputs
         self.proto_size = int(self.ft_output_size * 0.25)
         self.feat_size = int(self.ft_output_size)
 
         # initializing hyperparameters
         self.proto_frac = hparams["proto_train_frac"]
-        self.epochs = hparams["n_steps"]
         self.proto_epochs = hparams["n_steps_proto"]
 
         # self.kernel_type = "gaussian"

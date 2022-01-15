@@ -223,7 +223,6 @@ def train_source(args):
             args.out_file.write(log_str + '\n')
             args.out_file.flush()
             print(log_str+'\n')
-            print(args)
             test_target(args)
 
             if acc_s_te >= acc_init:
@@ -300,13 +299,12 @@ def print_args(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='SHOT')
-    parser.add_argument('--gpu_id', type=str, nargs='?', default='0', help="device id to run")
     parser.add_argument('--source',default='Ar,Pr', type=str, help="source")
     parser.add_argument('--target',default='Cl,Rw', type=str, help="target")
     parser.add_argument('--root', default='data/', type=str, help="source")
     parser.add_argument('--max_epoch', type=int, default=20, help="max iterations")
     parser.add_argument('--batch_size', type=int, default=64, help="batch_size")
-    parser.add_argument('--workers', type=int, default=4, help="number of workers")
+    parser.add_argument('--workers', type=int, default=8, help="number of workers")
     parser.add_argument('--dataset', type=str, default='OfficeHome', choices=['visda-2017', 'office', 'OfficeHome','pacs', 'domain_net'])
     parser.add_argument('--lr', type=float, default=1e-2, help="learning rate")
     parser.add_argument('--net', type=str, default='resnet50', help="vgg16, resnet50, resnet101")
@@ -344,29 +342,16 @@ if __name__ == "__main__":
         names = ['clipart', 'infograph', 'painting', 'quickdraw', 'sketch', 'real']
         # args.class_num = 345
 
-    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
+    # os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
     SEED = args.seed
     torch.manual_seed(SEED)
     torch.cuda.manual_seed(SEED)
     np.random.seed(SEED)
     random.seed(SEED)
-    # torch.backends.cudnn.deterministic = True
 
-    # folder = './data/'
-    # args.s_dset_path = folder + args.dataset + '/' + names[args.source] + '.txt'
-    # args.test_dset_path = folder + args.dataset + '/' + names[args.t] + '.txt'     
     mode = 'online' if args.wandb else 'disabled'
     wandb.init(project='degaa', entity='vclab', name=f'SRC Train: {args.source}', mode=mode)
     print(print_args(args))
-    # if args.dataset == 'OfficeHome':
-    #     if args.da == 'pda':
-    #         args.class_num = 65
-    #         args.src_classes = [i for i in range(65)]
-    #         args.tar_classes = [i for i in range(25)]
-    #     if args.da == 'oda':
-    #         args.class_num = 25
-    #         args.src_classes = [i for i in range(25)]
-    #         args.tar_classes = [i for i in range(65)]
 
     args.output_dir_src = osp.join(args.output, args.da, args.dataset, args.source.replace(',',''))
     args.name_src = args.source.replace(',','')
@@ -378,27 +363,8 @@ if __name__ == "__main__":
     args.out_file = open(osp.join(args.output_dir_src, 'log.txt'), 'w')
     args.out_file.write(print_args(args)+'\n')
     args.out_file.flush()
-    train_source(args)
-
-    args.out_file = open(osp.join(args.output_dir_src, 'log_test.txt'), 'w')
-    # for i in range(len(names)):
-    #     if i == args.source:
-    #         continue
-    #     args.t = i
     args.name = args.source.replace(',','') +  '_' + args.target.replace(',','')
-
-    # folder = './data/'
-    # args.s_dset_path = folder + args.dataset + '/' + names[args.source] + '_list.txt'
-    # args.test_dset_path = folder + args.dataset + '/' + names[args.t] + '_list.txt'
-
-    # if args.dataset == 'OfficeHome':
-    #     if args.da == 'pda':
-    #         args.class_num = 65
-    #         args.src_classes = [i for i in range(65)]
-    #         args.tar_classes = [i for i in range(25)]
-    #     if args.da == 'oda':
-    #         args.class_num = 25
-    #         args.src_classes = [i for i in range(25)]
-    #         args.tar_classes = [i for i in range(65)]
-
+    args.out_file = open(osp.join(args.output_dir_src, 'log_test.txt'), 'w')
+    
+    train_source(args)
     test_target(args)
