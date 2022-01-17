@@ -283,14 +283,18 @@ def main(args: argparse.Namespace):
 
         if h_score > best_h_score:
             # torch.save(classifier, logger.get_checkpoint_path("latest"))             
-            torch.save(netF, osp.join(logger.get_checkpoint_path("latest"), "source_F.pt"))
-            torch.save(netB, osp.join(logger.get_checkpoint_path("latest"), "source_B.pt"))
-            torch.save(netC, osp.join(logger.get_checkpoint_path("latest"), "source_C.pt"))
+            torch.save(netF, osp.join(args.output_dir, "latest_source_F.pt"))
+            torch.save(netB, osp.join(args.output_dir, "latest_source_B.pt"))
+            torch.save(netC, osp.join(args.output_dir, "latest_source_C.pt"))
             # shutil.copy(
             #     logger.get_checkpoint_path("latest"), logger.get_checkpoint_path("best")
             # )
 
     print("best_h_score = {:3.1f}".format(best_h_score))
+
+    torch.save(netF, osp.join(args.output_dir, "final_source_F.pt"))
+    torch.save(netB, osp.join(args.output_dir, "final_source_B.pt"))
+    torch.save(netC, osp.join(args.output_dir, "final_source_C.pt"))
 
     # classifier.load_state_dict(torch.load(logger.get_checkpoint_path("best")))
     h_score = validate(test_loader, classifier, prototypes, args)
@@ -350,7 +354,6 @@ def train(
         label_s = label_s.to(device)
         x_t = x_t.to(device)
         label_t = label_t.to(device)
-
         
 
         data_time.update(time.time() - end)
@@ -444,7 +447,7 @@ def validate(val_loader: DataLoader, model: Classifier, prototypes, args: argpar
         end = time.time()
         for i, ((images, target), d_idx) in enumerate(val_loader):
             images = images.to(device)
-            target = target.to(device)
+            # target = target.to(device)
 
             # compute output
             # output, _ = model(images)
@@ -463,12 +466,12 @@ def validate(val_loader: DataLoader, model: Classifier, prototypes, args: argpar
                 start_test = False
             else:
                 all_output = torch.cat((all_output, preds.float().cpu()), 0)
-                all_label = torch.cat((all_label, target.float()), 0)
+                all_label = torch.cat((all_label, target.float().cpu()), 0)
 
 
 
             # measure accuracy and record loss
-            confmat.update(target, softmax_output.argmax(1))
+            confmat.update(target, softmax_output.argmax(1).cpu())
 
             # measure elapsed time
             batch_time.update(time.time() - end)
