@@ -26,6 +26,7 @@ from common.utils.data import ForeverDataIterator
 from data_helper import setup_datasets
 
 import wandb
+os.environ['WANDB_API_KEY'] = '93b09c048a71a2becc88791b28475f90622b0f63'
 from torch.utils.tensorboard import SummaryWriter
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -258,8 +259,8 @@ def compute_prototype(
 def main(args):
     """ Main function calling prototype training functions as subroutine."""
     if args.wandb:
-        wandb.init(project = 'degaa')
-        wandb.run.name = 'DE_OfficeHome'
+        wandb.init(project = 'degaa', entity = 'abd1')
+        wandb.run.name = 'ProtoType'
     if args.tensorboard:
         global writer
         writer = SummaryWriter(os.path.join(args.output_dir,"tensorboard"))
@@ -318,7 +319,7 @@ def main(args):
         if do_prototype_training:
             print("::: PROTOTYPE TRAINING :::")
             print("==========================")
-            # algorithm.init_prototype_training()
+            algorithm.init_prototype_training()
             hparams["start_step"] = 0
             if args.resume is not None:
                 proto_model = os.path.join(args.output_dir, "prototype_%d.pth" % (args.resume))

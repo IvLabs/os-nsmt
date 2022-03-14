@@ -1,1 +1,1 @@
-CUDA_VISIBLE_DEVICES=0 python3 warmup.py --dset office-home -s Art -t Clipart --trained_wt weights/uda/office-home --wandb 0 --batch_size 16 --net resnet50
+CUDA_VISIBLE_DEVICES=2 python3 warmup.py --root data/ --dataset OfficeHome -s 'Ar,Pr' -t 'Cl,Rw' --trained_wt weights/uda/OfficeHome --wandb 0 --batch_size 16 --net resnet50

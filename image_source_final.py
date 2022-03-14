@@ -223,7 +223,6 @@ def train_source(args):
             args.out_file.write(log_str + '\n')
             args.out_file.flush()
             print(log_str+'\n')
-            test_target(args)
 
             if acc_s_te >= acc_init:
 
@@ -244,6 +243,7 @@ def train_source(args):
     torch.save(best_netF, osp.join(args.output_dir_src, "source_F.pt"))
     torch.save(best_netB, osp.join(args.output_dir_src, "source_B.pt"))
     torch.save(best_netC, osp.join(args.output_dir_src, "source_C.pt"))
+    test_target(args)
     print('Final Model Saved!!')
 
     return netF, netB, netC
