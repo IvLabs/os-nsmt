@@ -43,8 +43,8 @@ class Proto(nn.Module):
 
     """
 
-    def __init__(self, input_shape, num_classes, num_domains, hparams, use_relu=True):
-    # def __init__(self, hparams, use_relu=True):
+    # def __init__(self, input_shape, num_classes, num_domains, hparams, use_relu=True):
+    def __init__(self, hparams, use_relu=True):
         super(Proto, self).__init__()
 
         self.hparams = hparams

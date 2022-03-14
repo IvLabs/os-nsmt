@@ -93,7 +93,8 @@ def _setup_datasets(args, hparams):
     num_classes, train_source_loader, train_target_loader, _, _  = setup_datasets(args, False)
     splits = train_source_loader + train_target_loader
     trn_d = sorted([loader.dataset.domain_index for loader in splits])
-    train_loaders = [splits[i] for i in trn_d]
+    # train_loaders = [splits[i] for i in trn_d]
+    train_loaders = sorted(splits, key=lambda x: x.dataset.domain_index)
     steps_per_epoch = min(len(env.dataset) / hparams["batch_size"] for env in splits)
 
     return train_loaders, steps_per_epoch, trn_d
@@ -272,18 +273,18 @@ def main(args):
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+    # torch.backends.cudnn.deterministic = True
+    # torch.backends.cudnn.benchmark = True
 
     if torch.cuda.is_available():
         device = "cuda"
     else:
         device = "cpu"
-    device = "cpu"
+    # device = "cpu"
 
     (
-        train_loaders,
-        steps_per_epoch,
+        train_loaders, # list of 4 Dataloader: OpenSetDataset with 26 classes of Art, Product, Clipart, Real_World
+        steps_per_epoch, 
         trn_d,
     ) = _setup_datasets(args, hparams)
 
@@ -383,7 +384,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_proto_steps", type=int, default=0)
     parser.add_argument("--output_dir", type=str, default="./protoruns/temp", required=False)
     parser.add_argument("--proto_dir", type=str, required=False)
-    parser.add_argument("-j", "--workers", default=8)
+    parser.add_argument("-j", "--workers", type=int, default=4)
     parser.add_argument("--resume", type=int, required=False, help='enables resuming')
     parser.add_argument("--wandb", action='store_true', help='enables wandb logging')
     parser.add_argument("--tensorboard", action='store_true', help='enables tensorboard logging')

@@ -10,8 +10,8 @@ from common.utils.data import ForeverDataIterator
 
 def setup_datasets(args, concat=True, return_domain_idx=True):
 
-    if concat:
-        ConcatD = ConcatenateDataset if return_domain_idx else ConcatDataset
+    # if concat:
+    ConcatD = ConcatenateDataset if return_domain_idx else ConcatDataset
 
     normalize = T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 
