@@ -7,8 +7,8 @@ from torch.autograd import Variable
 import math
 import torch.nn.utils.weight_norm as weightNorm
 from collections import OrderedDict
-from TransUNet.networks.vit_seg_modeling import VisionTransformer as ViT_seg
-from TransUNet.networks.vit_seg_modeling import CONFIGS as CONFIGS_ViT_seg
+# from TransUNet.networks.vit_seg_modeling import VisionTransformer as ViT_seg
+# from TransUNet.networks.vit_seg_modeling import CONFIGS as CONFIGS_ViT_seg
 from non_local_embedded_gaussian import NONLocalBlock2D
  
 def calc_coeff(iter_num, high=1.0, low=0.0, alpha=10.0, max_iter=10000.0):

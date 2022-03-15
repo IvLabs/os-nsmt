@@ -18,6 +18,7 @@ from scipy.spatial.distance import cdist
 from sklearn.metrics import confusion_matrix
 from sklearn.cluster import KMeans
 import wandb
+os.environ['WANDB_API_KEY'] = '93b09c048a71a2becc88791b28475f90622b0f63'
 import sys
 sys.path.append('..')
 sys.path.append('common')
@@ -65,7 +66,13 @@ def image_test(resize_size=256, crop_size=224, alexnet=False):
         normalize
     ])
 
-def cal_acc(loader, netF, netB, netC, flag=False):
+def attach_embd(prototypes, feats, dom_idx):
+    dom_embd = prototypes[dom_idx] # accessing domain embedding according to domain index
+                                    # shape: [bs, 512]
+    x = torch.cat((feats, dom_embd), dim=1) # concat: ([bs, 2048], [bs, 512])
+    return x
+
+def cal_acc(loader, netF, netB, netC, prototypes, flag=False):
     start_test = True
     with torch.no_grad():
         iter_test = iter(loader)
@@ -73,8 +80,11 @@ def cal_acc(loader, netF, netB, netC, flag=False):
             data = iter_test.next()
             inputs = data[0][0]
             labels = data[0][1]
+            dom_idx = data[1]
             inputs = inputs.cuda()
-            outputs = netC(netB(netF(inputs)))
+            feats = netF(inputs)
+            x = attach_embd(prototypes, feats, dom_idx)
+            outputs = netC(netB(x))
             if start_test:
                 all_output = outputs.float().cpu()
                 all_label = labels.float()
@@ -98,7 +108,7 @@ def cal_acc(loader, netF, netB, netC, flag=False):
     else:
         return accuracy*100, mean_ent
 
-def cal_acc_oda(loader, netF, netB, netC):
+def cal_acc_oda(loader, netF, netB, netC, prototypes):
     start_test = True
     with torch.no_grad():
         iter_test = iter(loader)
@@ -106,8 +116,11 @@ def cal_acc_oda(loader, netF, netB, netC):
             data = iter_test.next()
             inputs = data[0][0]
             labels = data[0][1]
+            dom_idx = data[1]
             inputs = inputs.cuda()
-            outputs = netC(netB(netF(inputs)))
+            feats = netF(inputs)
+            x = attach_embd(prototypes, feats, dom_idx)
+            outputs = netC(netB(x))
             if start_test:
                 all_output = outputs.float().cpu()
                 all_label = labels.float()
@@ -158,7 +171,12 @@ def train_source(args):
     # num_params_update = sum([np.prod(p.shape) for p in model.parameters() if p.requires_grad])
     # print("Total number of learning parameters: {}".format(num_params_update))
 
-    netB = network.feat_bootleneck(type=args.classifier, feature_dim=netF.in_features, bottleneck_dim=args.bottleneck).cuda()
+    args.feature_dim = netF.in_features
+    netB = network.feat_bootleneck(
+        type=args.classifier,
+        feature_dim=netF.in_features + args.proto_dim,
+        bottleneck_dim=args.bottleneck
+    ).cuda()
     netC = network.feat_classifier(type=args.layer, class_num = args.class_num, bottleneck_dim=args.bottleneck).cuda()
 
     param_group = []
@@ -172,6 +190,11 @@ def train_source(args):
     optimizer = optim.SGD(param_group)
     optimizer = op_copy(optimizer)
 
+    prototypes_file = osp.join(args.proto_path)
+    prototypes = torch.load(prototypes_file)
+    prototypes = torch.stack(list(prototypes.values()), dim=0)  # shape: [4, 512]
+    prototypes = prototypes.cuda()
+
     acc_init = 0
     max_iter = args.max_epoch * len(dset_loaders["source_tr"])
     interval_iter = max_iter // 10
@@ -183,10 +206,10 @@ def train_source(args):
 
     while iter_num < max_iter:
         try:
-            (inputs_source, labels_source),_ = iter_source.next()
+            (inputs_source, labels_source), dom_idx = iter_source.next()
         except:
             iter_source = iter(dset_loaders["source_tr"])
-            (inputs_source, labels_source),_ = iter_source.next()
+            (inputs_source, labels_source), dom_idx = iter_source.next()
 
         if inputs_source.size(0) == 1:
             continue
@@ -195,7 +218,13 @@ def train_source(args):
         lr_scheduler(optimizer, iter_num=iter_num, max_iter=max_iter)
 
         inputs_source, labels_source = inputs_source.cuda(), labels_source.cuda()
-        outputs_source = netC(netB(netF(inputs_source)))
+        feats = netF(inputs_source) # [bs, 2048]
+
+        # dom_embd = prototypes[dom_idx] # accessing domain embedding according to domain index
+        #                                # shape: [bs, 512]
+        # x = torch.cat((feats, dom_embd), dim=1) # concat: ([bs, 2048], [bs, 512])
+        x = attach_embd(prototypes, feats, dom_idx)
+        outputs_source = netC(netB(x))
         #print(args.class_num, outputs_source.shape, labels_source.shape)
         
         
@@ -214,10 +243,10 @@ def train_source(args):
             netB.eval()
             netC.eval()
             if args.dataset=='visda-2017':
-                acc_s_te, acc_list = cal_acc(dset_loaders['source_te'], netF, netB, netC, True)
+                acc_s_te, acc_list = cal_acc(dset_loaders['source_te'], netF, netB, netC, prototypes, True)
                 log_str = 'Task: {}, Iter:{}/{}; Accuracy = {:.2f}%'.format(args.name_src, iter_num, max_iter, acc_s_te) + '\n' + acc_list
             else:
-                acc_s_te, _ = cal_acc(dset_loaders['source_te'], netF, netB, netC, False)
+                acc_s_te, _ = cal_acc(dset_loaders['source_te'], netF, netB, netC, prototypes, False)
                 log_str = 'Task: {}, Iter:{}/{}; Accuracy = {:.2f}%'.format(args.name_src, iter_num, max_iter, acc_s_te)
             wandb.log({'SRC TRAIN: Acc' : acc_s_te})
             args.out_file.write(log_str + '\n')
@@ -263,9 +292,19 @@ def test_target(args):
     else:
         netF = network.ViT().cuda()
         
-    netB = network.feat_bootleneck(type=args.classifier, feature_dim=netF.in_features, bottleneck_dim=args.bottleneck).cuda()
+    # args.feature_dim = netF.in_features
+    netB = network.feat_bootleneck(
+        type=args.classifier,
+        feature_dim=netF.in_features + args.proto_dim,
+        bottleneck_dim=args.bottleneck
+    ).cuda()
     netC = network.feat_classifier(type=args.layer, class_num = args.class_num, bottleneck_dim=args.bottleneck).cuda()
     
+    prototypes_file = osp.join(args.proto_path)
+    prototypes = torch.load(prototypes_file)
+    prototypes = torch.stack(list(prototypes.values()), dim=0)  # shape: [4, 512]
+    prototypes = prototypes.cuda()
+
     args.modelpath = args.output_dir_src + '/source_F.pt'   
     netF.load_state_dict(torch.load(args.modelpath))
     args.modelpath = args.output_dir_src + '/source_B.pt'   
@@ -277,14 +316,14 @@ def test_target(args):
     netC.eval()
 
     if args.da == 'oda':
-        acc_os1, acc_os2, acc_unknown = cal_acc_oda(dset_loaders['test'], netF, netB, netC)
+        acc_os1, acc_os2, acc_unknown = cal_acc_oda(dset_loaders['test'], netF, netB, netC, prototypes)
         log_str = '\nTraining: {}, Task: {}, Accuracy = {:.2f}% / {:.2f}% / {:.2f}%'.format(args.trte, args.name, acc_os2, acc_os1, acc_unknown)
     else:
         if args.dataset=='visda-2017':
-            acc, acc_list = cal_acc(dset_loaders['test'], netF, netB, netC, True)
+            acc, acc_list = cal_acc(dset_loaders['test'], netF, netB, netC, prototypes, True)
             log_str = '\nTraining: {}, Task: {}, Accuracy = {:.2f}%'.format(args.trte, args.name, acc) + '\n' + acc_list
         else:
-            acc, _ = cal_acc(dset_loaders['test'], netF, netB, netC, False)
+            acc, _ = cal_acc(dset_loaders['test'], netF, netB, netC, prototypes, False)
             log_str = '\nTraining: {}, Task: {}, Accuracy = {:.2f}%'.format(args.trte, args.name, acc)
 
     args.out_file.write(log_str)
@@ -306,16 +345,18 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', type=int, default=64, help="batch_size")
     parser.add_argument('--workers', type=int, default=8, help="number of workers")
     parser.add_argument('--dataset', type=str, default='OfficeHome', choices=['visda-2017', 'office', 'OfficeHome','pacs', 'domain_net'])
+    parser.add_argument('--proto_path', help="path to Domain Embedding Prototypes")
     parser.add_argument('--lr', type=float, default=1e-2, help="learning rate")
     parser.add_argument('--net', type=str, default='resnet50', help="vgg16, resnet50, resnet101")
     parser.add_argument('--seed', type=int, default=2020, help="random seed")
+    parser.add_argument('--proto_dim', type=int, default=512)
     parser.add_argument('--bottleneck', type=int, default=256)
     parser.add_argument('--epsilon', type=float, default=1e-5)
     parser.add_argument('--layer', type=str, default="wn", choices=["linear", "wn"])
     parser.add_argument('--classifier', type=str, default="bn", choices=["ori", "bn"])
     parser.add_argument('--smooth', type=float, default=0.1)   
-    parser.add_argument('--output', type=str, default='san')
-    parser.add_argument('--da', type=str, default='uda', choices=['uda', 'pda', 'oda'])
+    parser.add_argument('--output', type=str, default='warmup')
+    parser.add_argument('--da', type=str, default='oda', choices=['uda', 'pda', 'oda'])
     parser.add_argument('--trte', type=str, default='val', choices=['full', 'val'])
     parser.add_argument('--bsp', type=bool, default=False)
     parser.add_argument('--se', type=bool, default=False)
@@ -350,7 +391,8 @@ if __name__ == "__main__":
     random.seed(SEED)
 
     mode = 'online' if args.wandb else 'disabled'
-    wandb.init(project='degaa', entity='vclab', name=f'SRC Train: {args.source}', mode=mode)
+    wandb.init(project='degaa', entity='abd1', mode=mode)
+    wandb.run.name =  'Warmup: {args.source}' + wandb.run.name
     print(print_args(args))
 
     args.output_dir_src = osp.join(args.output, args.da, args.dataset, args.source.replace(',',''))
@@ -359,6 +401,9 @@ if __name__ == "__main__":
         os.system('mkdir -p ' + args.output_dir_src)
     if not osp.exists(args.output_dir_src):
         os.mkdir(args.output_dir_src)
+
+    # args.proto_path = "./protoruns/run7/prototypes.pth"
+    assert osp.exists(args.proto_path), "Domain Embeddings Prototypes does not exists." 
 
     args.out_file = open(osp.join(args.output_dir_src, 'log.txt'), 'w')
     args.out_file.write(print_args(args)+'\n')
