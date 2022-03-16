@@ -190,6 +190,7 @@ def train_source(args):
     optimizer = optim.SGD(param_group)
     optimizer = op_copy(optimizer)
 
+    print("Loading Domian Embeddings from: %s" % args.proto_path)
     prototypes_file = osp.join(args.proto_path)
     prototypes = torch.load(prototypes_file)
     prototypes = torch.stack(list(prototypes.values()), dim=0)  # shape: [4, 512]
@@ -337,7 +338,7 @@ def print_args(args):
     return s
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='SHOT')
+    parser = argparse.ArgumentParser(description='SourceOnly Training')
     parser.add_argument('--source',default='Ar,Pr', type=str, help="source")
     parser.add_argument('--target',default='Cl,Rw', type=str, help="target")
     parser.add_argument('--root', default='data/', type=str, help="source")

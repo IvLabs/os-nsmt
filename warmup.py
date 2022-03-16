@@ -65,10 +65,12 @@ def load_models(args,dom_adapts):
         netF = network.ViT().to(device)
     
     args.feature_dim = netF.in_features
-    args.bottleneck_dim = 256
-
-    netB = network.feat_bootleneck(type='bn', feature_dim=args.feature_dim,bottleneck_dim=args.bottleneck_dim).to(device)
-    netC = network.feat_classifier(type='wn', class_num=args.class_num, bottleneck_dim=args.bottleneck_dim).to(device)
+    netB = network.feat_bootleneck(
+        type=args.classifier,
+        feature_dim=netF.in_features + args.proto_dim,
+        bottleneck_dim=args.bottleneck
+     ).to(device)
+    netC = network.feat_classifier(type=args.layer, class_num=args.class_num, bottleneck_dim=args.bottleneck).to(device)
 
     modelpathF = f'{args.trained_wt}/{dom_adapts}/source_F.pt'
     netF.load_state_dict(torch.load(modelpathF))
@@ -90,7 +92,14 @@ def load_models(args,dom_adapts):
     return model_loaders
 
 
-def compute_features(args, net, dataloader, dataset_name=None):
+def attach_embd(prototypes, feats, dom_idx):
+    dom_embd = prototypes[dom_idx] # accessing domain embedding according to domain index
+                                    # shape: [bs, 512]
+    x = torch.cat((feats, dom_embd), dim=1) # concat: ([bs, 2048], [bs, 512])
+    return x
+
+
+def compute_features(args, net, dataloader, prototypes, dataset_name=None):
     # print(len(dataloader))
     netF,netB, netC = net[0], net[1], net[2]
     print(f'Computing features for [{dataset_name}] -', len(dataloader)*args.batch_size, 'images')
@@ -98,7 +107,7 @@ def compute_features(args, net, dataloader, dataset_name=None):
     correct = 0
     total = 0
     stored_feat_lbl = {}
-    stored_feat_lbl['feature'] = torch.empty((1,args.bottleneck_dim)).to(device)
+    stored_feat_lbl['feature'] = torch.empty((1,args.bottleneck)).to(device)
     stored_feat_lbl['label'] = torch.empty((1), dtype=torch.int).to(device)
     # print(store_feat)
     
@@ -106,11 +115,14 @@ def compute_features(args, net, dataloader, dataset_name=None):
         iter_test = iter(dataloader)
         for i in tqdm(range(len(dataloader))):
             data = iter_test.next()
-            inputs = data[0][0].to('cuda')
-            labels = data[0][1].to('cuda')
-            
-            feats = netB(netF(inputs))            
+            inputs = data[0][0].to(device)
+            labels = data[0][1].to(device)
+            dom_idx = data[1]
 
+            fout  = netF(inputs)
+            x = attach_embd(prototypes, fout , dom_idx)
+            feats = netB(x)
+            
             stored_feat_lbl['feature'] = torch.cat((stored_feat_lbl['feature'], feats), 0)
             stored_feat_lbl['label'] = torch.cat((stored_feat_lbl['label'], labels), 0)
 
@@ -137,9 +149,9 @@ def compute_features(args, net, dataloader, dataset_name=None):
 
 def compute_centroids(args,features_labels):
     
-    run_sum = torch.zeros((args.class_num, args.bottleneck_dim), dtype=torch.float).to(device)
+    run_sum = torch.zeros((args.class_num, args.bottleneck), dtype=torch.float).to(device)
     lbl_cnt = torch.ones((args.class_num), dtype=torch.float).to(device)
-    cls_centroids = torch.zeros((args.class_num, args.bottleneck_dim), dtype=torch.float).to(device)
+    cls_centroids = torch.zeros((args.class_num, args.bottleneck), dtype=torch.float).to(device)
 
     for feat, lbl in zip(features_labels['feature'],features_labels['label']):
         run_sum[lbl] += feat
@@ -190,12 +202,18 @@ def main(args):
     dom_dataloaders[args.target] = train_target_loader
     model_loaders ={}
 
+    print("Loading Domian Embeddings from: %s" % args.proto_path)
+    prototypes_file = osp.join(args.proto_path)
+    prototypes = torch.load(prototypes_file)
+    prototypes = torch.stack(list(prototypes.values()), dim=0)  # shape: [4, 512]
+    prototypes = prototypes.to(device)
+
     for domain in [args.source, args.target]:
         model_loaders[domain] = load_models(args, domain)
         features_labels = {}
 
         # Compute features and labels of src and targets using src trained wts
-        features_labels[domain] = compute_features(args, model_loaders[domain] , dom_dataloaders[domain], dataset_name=domain)
+        features_labels[domain] = compute_features(args, model_loaders[domain] , dom_dataloaders[domain], prototypes, dataset_name=domain)
         # features_labels['target'] = compute_features(args, model_loaders[args.target] , dom_dataloaders[args.target], dataset_name=args.target)
         np_cls_centroids = compute_centroids(args,features_labels[domain]).cpu().numpy()
         np_feat = features_labels[domain]['feature'].cpu().numpy()
@@ -206,20 +224,30 @@ def main(args):
         break
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Clusformer')
-    parser.add_argument('-b', '--batch_size', default=32, type=int,help='mini-batch size (default: 54)')
+    parser = argparse.ArgumentParser(description='Centroids')
+    parser.add_argument('-b', '--batch_size', default=64, type=int,help='mini-batch size (default: 64)')
     # parser.add_argument('--gpu_id', type=str, nargs='?', default='0', help="device id to run")
     parser.add_argument('--root', default='data/', type=str, )
     parser.add_argument('--workers', default=8, type=int )
     parser.add_argument('-s', '--source',default='Ar,Pr', type=str,help='Select the source [amazon, dslr, webcam]')
     parser.add_argument('-t', '--target', default='Cl,Rw',type=str,help='Select the target [amazon, dslr, webcam]')
     parser.add_argument('-d', '--dataset',default='OfficeHome', type=str,help='Select the target [amazon, dslr, webcam]')
+    parser.add_argument('--proto_path', help="path to Domain Embedding Prototypes")
     # parser.add_argument('-e', '--epochs', default=40, type=int,help='select number of cycles')
+    parser.add_argument('--proto_dim', type=int, default=512)
+    parser.add_argument('--bottleneck', type=int, default=256)
+    parser.add_argument('--layer', type=str, default="wn", choices=["linear", "wn"])
+    parser.add_argument('--classifier', type=str, default="bn", choices=["ori", "bn"])
     parser.add_argument('-w', '--wandb', default=0, type=int,help='Log to wandb or not [0 - dont use | 1 - use]')
-    parser.add_argument('--net', default='resnet50', type=str,help='Select vit or resnet50 based (default: vit)')
+    parser.add_argument('--net', default='resnet50', type=str,help='Select vit or resnet50 based (default: resnet50)')
     parser.add_argument('-l', '--trained_wt', default='weights/uda/OfficeHome', type=str,help='Load src')
     args = parser.parse_args()
     print(args)
+
+
+    # args.proto_path = "./protoruns/run7/prototypes.pth"
+    assert osp.exists(args.proto_path), "Domain Embeddings Prototypes does not exists." 
+
     main(args)
 # data_size, dims, num_clusters = 1000, 2, 3
 # x = np.random.randn(data_size, dims) / 6
