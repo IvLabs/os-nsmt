@@ -60,6 +60,14 @@ while i < torch.cuda.device_count():
 
 counter = 0
 
+
+def attach_embd(prototypes, feats, dom_idx):
+    dom_embd = prototypes[dom_idx] # accessing domain embedding according to domain index
+                                    # shape: [bs, 512]
+    x = torch.cat((feats, dom_embd), dim=1) # concat: ([bs, 2048], [bs, 512])
+    return x
+
+
 def main(args: argparse.Namespace):
     if args.wandb:
         mode = "online" if args.wandb else "disabled"
@@ -190,39 +198,35 @@ def main(args: argparse.Namespace):
 
     # backbone = models.__dict__[args.arch](pretrained = True)
     netF = network.ResBase(res_name=args.net).to(device)
-    modelpathB = "weights/uda/office-home/A/source_B.pt"
 
     # num_classes = args.num_classes  # train_source_dataset.num_classes
     # num_classes = len(train_source_dataset.datasets[0].classes)
     args.num_classes = num_classes
 
-    # classifier = ImageClassifier(backbone, num_classes = num_classes, bottleneck_dim = args.bottleneck_dim).to(device)
+    # classifier = ImageClassifier(backbone, num_classes = num_classes, bottleneck = args.bottleneck).to(device)
     # summary(classifier, (3, 224, 224))
 
     args.feature_dim = netF.in_features
-    args.bottleneck_dim = 256
-
-    proto_dim = 512  # to be chznaged
     netB = network.feat_bootleneck(
-        type="bn",
-        feature_dim=args.feature_dim + proto_dim, # 2048 + 512
-        bottleneck_dim=args.bottleneck_dim, # 256
+        type=args.classifier,
+        feature_dim=args.feature_dim + args.proto_dim, # 2048 + 512
+        bottleneck_dim=args.bottleneck, # 256
     ).to(device)
     netC = network.feat_classifier(
-        type="wn", class_num=args.num_classes, bottleneck_dim=args.bottleneck_dim  # 256, #26
+        type=args.layer, class_num=args.num_classes, bottleneck_dim=args.bottleneck  # 256, #26
     ).to(device)
 
     modelpathF = f'{args.trained_wt}/{args.dataset}/{"".join(args.source)}/source_F.pt'
     netF.load_state_dict(torch.load(modelpathF))
     
-    # modelpathB = f'{args.trained_wt}/{args.dataset}/{"".join(args.source)}/source_B.pt'
-    # netB.load_state_dict(torch.load(modelpathB))
+    modelpathB = f'{args.trained_wt}/{args.dataset}/{"".join(args.source)}/source_B.pt'
+    netB.load_state_dict(torch.load(modelpathB))
 
     modelpathC = f'{args.trained_wt}/{args.dataset}/{"".join(args.source)}/source_C.pt'
     netC.load_state_dict(torch.load(modelpathC))
 
     gaa = GAA(
-        input_dim=args.bottleneck_dim,
+        input_dim=args.bottleneck,
         num_classes=num_classes,
         gnn_layers=6,
         num_heads=4,
@@ -355,19 +359,21 @@ def train(
         x_t = x_t.to(device)
         label_t = label_t.to(device)
         
+        x = torch.cat((x_s, x_t), dim=0)  # x.shape [bs*2, 3, 224]
+        dom_idx = torch.cat((ds_idx, dt_idx), dim=0) # [bs*2]
 
         data_time.update(time.time() - end)
         # x_s : Art + Webcam
         # torch.where(embd, idx=doimain_indxs) # shape: [bs*num_domains, 512]
-        ds_embd = prototypes[ds_idx]  # shape: [bs, 512]
-        dt_embd = prototypes[dt_idx]
-        d_embd = torch.cat((ds_embd, dt_embd), dim=0)
-        x = torch.cat((x_s, x_t), dim=0)  # x.shape [bs*2, 3, 224]
+        # ds_embd = prototypes[ds_idx]  # shape: [bs, 512]
+        # dt_embd = prototypes[dt_idx]
+        # d_embd = torch.cat((ds_embd, dt_embd), dim=0)
         # embd.shape [bs*2, 512]
         # embd[:bs] = embd{1},
         # f = netB(netF(x)) # Seperate and contact netF(x) with embedding along dim 1
         feats = netF(x)
-        f = torch.cat([feats, d_embd], dim=1)  # [bs, 2048+512]
+        f = attach_embd(prototypes, feats, dom_idx) # [bs*2, 2048+512]
+        # f = torch.cat([feats, d_embd], dim=1)  # [bs*2, 2048+512]
         f = netB(f)
 
         # y_s, y_t = y.chunk(2, dim=0)
@@ -480,6 +486,8 @@ def validate(val_loader: DataLoader, model: Classifier, prototypes, args: argpar
             if i % args.print_freq == 0:
                 progress.display(i)
             
+            break
+            
 
 
         matrix = confusion_matrix(all_label, all_output)
@@ -524,6 +532,10 @@ if __name__ == "__main__":
     parser.add_argument("-t", "--target", help="target domain(s)", default="Cl,Rw")
     parser.add_argument('-p', '--proto_path', help="path to Domain Embedding Prototypes")
     parser.add_argument('-c', '--centroid_path', help="path to Source Only trained Centroids")
+    parser.add_argument('--proto_dim', type=int, default=512)
+    parser.add_argument('--bottleneck', type=int, default=256)
+    parser.add_argument('--layer', type=str, default="wn", choices=["linear", "wn"])
+    parser.add_argument('--classifier', type=str, default="bn", choices=["ori", "bn"])
     parser.add_argument("--trade-off", default=1.0, type=float)
     parser.add_argument("-i", "--iters-per-epoch", default=500, type=int)
     parser.add_argument("--print-freq", default=100, type=int)
@@ -535,7 +547,7 @@ if __name__ == "__main__":
     parser.add_argument("--tensorboard", action='store_true', help='enables tensorboard logging')
     parser.add_argument("--wandb", action="store_true", help="enables wandb logging")
     parser.add_argument("--output_dir", default="./adapt/run1", help="enables wandb logging")
-    parser.add_argument('-l', '--trained_wt', default='weights/uda', type=str,help='Load src')
+    parser.add_argument('-l', '--trained_wt', default='weights/oda', type=str,help='Load src')
     parser.add_argument(
         "--net",
         default="resnet50",
@@ -551,5 +563,8 @@ if __name__ == "__main__":
 
     args.centroid_path = "./centroids/OfficeHome/ArPr_centroid.npy"
     assert osp.exists(args.centroid_path), "Source Only trained centroids does not exists." 
+
+    if not osp.exists(args.output_dir):
+        os.makedirs(args.output_dir)
 
     main(args)
