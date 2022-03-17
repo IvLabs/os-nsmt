@@ -63,7 +63,7 @@ counter = 0
 def main(args: argparse.Namespace):
     if args.wandb:
         mode = "online" if args.wandb else "disabled"
-        wandb.init(project="degaa", entity="flagarihant2000", mode=mode)
+        wandb.init(project="degaa", entity="abd1", mode=mode)
         wandb.run.name = "run_" + str(args.source) + str(args.target)
     if args.tensorboard:
         global writer
@@ -249,11 +249,11 @@ def main(args: argparse.Namespace):
 
 
     # summary(gaa, [(32, 1024),(32, 1024)])
-    centroids = np.load('/home/vikash/project/rohit_lal/os-nsmt/centroids/OfficeHome/ArPr_centroid.npy')
+    centroids = np.load(args.centroid_path)
     centroids = centroids[:num_classes-1]
     # print(centroids.shape)
 
-    prototypes_file = os.path.join("/home/vikash/project/rohit_lal/os-nsmt/protoruns/run4/prototypes.pth")
+    prototypes_file = os.path.join(args.proto_path)
     prototypes = torch.load(prototypes_file)
     # print(prototypes.keys())
     prototypes = torch.stack(list(prototypes.values()), dim=0)  # shape: [4, 512]
@@ -522,9 +522,11 @@ if __name__ == "__main__":
     parser.add_argument("--root", default="./data")
     parser.add_argument("-s", "--source", help="source domain(s)", default="Ar,Pr")
     parser.add_argument("-t", "--target", help="target domain(s)", default="Cl,Rw")
+    parser.add_argument('-p', '--proto_path', help="path to Domain Embedding Prototypes")
+    parser.add_argument('-c', '--centroid_path', help="path to Source Only trained Centroids")
     parser.add_argument("--trade-off", default=1.0, type=float)
     parser.add_argument("-i", "--iters-per-epoch", default=500, type=int)
-    parser.add_argument("-p", "--print-freq", default=100, type=int)
+    parser.add_argument("--print-freq", default=100, type=int)
     parser.add_argument("--log", type=str, default="degaa")
     parser.add_argument("--seed", default=0, type=int)
     parser.add_argument("--phase", type=str, default="train")
@@ -538,9 +540,16 @@ if __name__ == "__main__":
         "--net",
         default="resnet50",
         type=str,
-        help="Select vit or rn50 based (default: vit)",
+        help="Select vit or rn50 based (default: resnet50)",
     )
     # parser.add_argument("-n", "--num_classes", default=26)
 
     args = parser.parse_args()
+
+    args.proto_path = "./protoruns/run7/prototypes.pth"
+    assert osp.exists(args.proto_path), "Domain Embeddings Prototypes does not exists." 
+
+    args.centroid_path = "./centroids/OfficeHome/ArPr_centroid.npy"
+    assert osp.exists(args.centroid_path), "Source Only trained centroids does not exists." 
+
     main(args)
