@@ -51,7 +51,7 @@ class OfficeHome(ImageList):
                'Fan', 'Ruler', 'Pan', 'Screwdriver', 'Trash_Can', 'Printer', 'Speaker', 'Eraser', 'Bucket', 'Chair',
                'Calendar', 'Calculator', 'Flowers', 'Lamp_Shade', 'Spoon', 'Candles', 'Clipboards', 'Scissors', 'TV',
                'Curtains', 'Fork', 'Soda', 'Table', 'Knives', 'Oven', 'Refrigerator', 'Marker']
-    CLASSES = sorted(CLASSES)
+    # CLASSES = sorted(CLASSES)
 
     def __init__(self, root: str, task: str, download: Optional[bool] = False, **kwargs):
         assert task in self.image_list
@@ -61,7 +61,7 @@ class OfficeHome(ImageList):
         if download:
             list(map(lambda args: download_data(root, *args), self.download_list))
         else:
-            list(map(lambda file_name, _: check_exits(root, file_name), self.download_list))
+            list(map(lambda file_name: check_exits(root, file_name), [a[0] for a in self.download_list]))
 
         super(OfficeHome, self).__init__(root, OfficeHome.CLASSES, data_list_file=data_list_file, **kwargs)
 
