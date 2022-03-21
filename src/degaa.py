@@ -43,6 +43,7 @@ from torch.utils.tensorboard import SummaryWriter
 # from torchsummary import summary
 
 import wandb
+os.environ['WANDB_API_KEY'] = '93b09c048a71a2becc88791b28475f90622b0f63'
 
 warnings.filterwarnings("ignore")
 
@@ -526,7 +527,7 @@ if __name__ == "__main__":
     parser.add_argument("--momentum", default=0.9)
     parser.add_argument("--wd", "--weight-decay", default=1e-3)
     parser.add_argument("-j", "--workers", default=0)
-    parser.add_argument("--epochs", type=int, default=1000)
+    parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--root", default="./data")
     parser.add_argument("-s", "--source", help="source domain(s)", default="Ar,Pr")
     parser.add_argument("-t", "--target", help="target domain(s)", default="Cl,Rw")
