@@ -26,7 +26,6 @@ sys.path.append("..")
 sys.path.append("")
 from common.modules.classifier import Classifier
 
-# from dalib.adaptation.dann import DomainAdversarialLoss, ImageClassifier
 from dalib.adaptation.degaa import ImageClassifier, GAA
 import common.vision.datasets.openset as datasets
 from common.vision.datasets.openset import default_open_set as open_set
@@ -35,7 +34,7 @@ from common.vision.transforms import ResizeImage
 from common.utils.data import ForeverDataIterator
 from common.utils.metric import accuracy, ConfusionMatrix
 from common.utils.meter import AverageMeter, ProgressMeter
-from common.utils.logger import CompleteLogger
+from common.utils.logger import CompleteLogger, TextLogger
 from common.utils.analysis import collect_feature, tsne, a_distance
 import network
 from data_helper import setup_datasets
@@ -46,7 +45,6 @@ import wandb
 
 warnings.filterwarnings("ignore")
 
-# wandb.init(project = "degaa")
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # device = torch.device("cpu")
@@ -77,7 +75,9 @@ def main(args: argparse.Namespace):
         global writer
         writer = SummaryWriter(os.path.join(args.output_dir,"tensorboard"))
 
-    logger = CompleteLogger(args.log, args.phase)
+    # logger = CompleteLogger(args.log, args.phase)
+    global logger
+    logger = TextLogger(osp.join(args.output_dir, "out.txt"))
 
     if args.seed is not None:
         random.seed(args.seed)
@@ -93,102 +93,6 @@ def main(args: argparse.Namespace):
 
         cudnn.benchmark = True
 
-    '''
-    normalize = T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-
-    train_transform = T.Compose(
-        [
-            ResizeImage(256),
-            T.CenterCrop(224),
-            T.RandomHorizontalFlip(),
-            T.ToTensor(),
-            normalize,
-        ]
-    )
-
-    val_transform = T.Compose(
-        [ResizeImage(256), T.CenterCrop(224), T.ToTensor(), normalize]
-    )
-
-    dataset = datasets.__dict__[args.dataset]
-    source_dataset = open_set(dataset, source=True)
-    target_dataset = open_set(dataset, source=False)
-    # source_dataset = dataset
-    # target_dataset = dataset
-    # OfficeHome Ar: Art, Cl: Clipart, Pr: Product, Rw: Real - World
-    # print(args.source, args.target, dataset.domains())
-    # print(args.source.split(','))
-    args.source = args.source.split(",")
-    args.target = args.target.split(",")
-    if args.dataset == "OfficeHome":
-        args.root = os.path.join(args.root, "office-home")
-    train_source_dataset = ConcatDataset(
-        [
-            source_dataset(
-                root=args.root, task=source, download=True, transform=train_transform
-            )
-            for source in args.source
-        ]
-    )
-    train_target_dataset = ConcatDataset(
-        [
-            target_dataset(
-                root=args.root, task=target, download=True, transform=train_transform
-            )
-            for target in args.target
-        ]
-    )
-    # train_source_dataset = source_dataset(root=args.root, task=args.source, download=True, transform=train_transform)
-    # train_target_dataset = target_dataset(root=args.root, task=args.target, download=True, transform=train_transform)
-
-    train_source_loader = DataLoader(
-        train_source_dataset,
-        batch_size=args.batch_size,
-        shuffle=True,
-        num_workers=args.workers,
-        drop_last=True,
-    )
-    train_target_loader = DataLoader(
-        train_target_dataset,
-        batch_size=args.batch_size,
-        shuffle=True,
-        num_workers=args.workers,
-        drop_last=True,
-    )
-
-    # val_dataset = target_dataset(
-    #     root=args.root, task=args.target[0], download=True, transform=val_transform
-    # )
-    val_dataset = ConcatDataset(
-        [
-            target_dataset(
-                root=args.root, task=target, download=True, transform=train_transform
-            )
-            for target in args.target
-        ]
-    )
-    val_loader = DataLoader(
-        val_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.workers
-    ) # change shuffle to Flase later
-
-    if args.dataset == "DomainNet":
-        test_dataset = dataset(
-            root=args.root,
-            task=args.target,
-            split="test",
-            download=True,
-            transform=val_transform,
-        )
-        test_loader = DataLoader(
-            test_dataset,
-            batch_size=args.batch_size,
-            shuffle=False,
-            num_workers=args.workers,
-        )
-    else:
-        test_loader = val_loader
-    '''
-    # val_iter = ForeverDataIterator(val_loader)
 
     num_classes, train_source_loader, train_target_loader, val_loader, test_loader = setup_datasets(args, concat=True)
     # num_classes = num_classes - 1
@@ -245,7 +149,7 @@ def main(args: argparse.Namespace):
         param_group += [{"params": v, "lr": learning_rate}] 
     for k, v in gaa.named_parameters():
         param_group += [{"params": v, "lr": learning_rate}]
-    optimizer = SGD(param_group)
+    optimizer = SGD(param_group, momentum = args.momentum, weight_decay = args.wd, nesterov = True)
     lr_scheduler = LambdaLR(
         optimizer,
         lambda x: args.lr * (1 + args.lr_gamma * float(x)) ** (-args.lr_decay),
@@ -288,13 +192,9 @@ def main(args: argparse.Namespace):
         h_score = validate(val_loader, classifier, prototypes, args)
 
         if h_score > best_h_score:
-            # torch.save(classifier, logger.get_checkpoint_path("latest"))             
             torch.save(netF, osp.join(args.output_dir, "latest_source_F.pt"))
             torch.save(netB, osp.join(args.output_dir, "latest_source_B.pt"))
             torch.save(netC, osp.join(args.output_dir, "latest_source_C.pt"))
-            # shutil.copy(
-            #     logger.get_checkpoint_path("latest"), logger.get_checkpoint_path("best")
-            # )
 
     print("best_h_score = {:3.1f}".format(best_h_score))
 
@@ -302,12 +202,12 @@ def main(args: argparse.Namespace):
     torch.save(netB, osp.join(args.output_dir, "final_source_B.pt"))
     torch.save(netC, osp.join(args.output_dir, "final_source_C.pt"))
 
-    # classifier.load_state_dict(torch.load(logger.get_checkpoint_path("best")))
     h_score = validate(test_loader, classifier, prototypes, args)
     print("test_h_score = {:3.1f}".format(h_score))
 
     logger.close()
-    writer.close()
+    if args.tensorboard:
+        writer.close()
 
 
 def NearestNeighbor(known, centroids):
@@ -348,7 +248,7 @@ def train(
     netB.train()
     netC.train()
     gaa.train()
-    clf = LocalOutlierFactor(n_neighbors=num_classes + 1, contamination=0.1)
+    clf = LocalOutlierFactor(n_neighbors=20,  contamination=0.1)
     softmax = nn.Softmax(dim=1)
 
     end = time.time()
@@ -383,16 +283,16 @@ def train(
 
 
         # label_s = torch.empty_like(label_s) # shape [bs]
-        f_s_numpy = f_s.clone().cpu().detach().numpy()
-        source_pred= clf.fit_predict(f_s_numpy) # 4. pass whole dataset through LOF
-        print(label_s, "\n", source_pred)
+        # f_s_numpy = f_s.clone().cpu().detach().numpy()
+        # source_pred= clf.fit_predict(f_s_numpy) # 4. pass whole dataset through LOF
+        # print(label_s, "\n", source_pred)
         # 1. Try training without Lof and wothout unknown classes. Using target labels expracted from centroids
 
-        label_t = torch.empty_like(label_t) # shape [bs]
+        label_tt = torch.empty_like(label_t) # shape [bs]
         f_t_numpy = f_t.clone().cpu().detach().numpy()
         y_pred = clf.fit_predict(f_t_numpy) # 2. store y_pred and calc unknown accuracy
         index = np.where(y_pred == -1)  # for n outliers, shape [n, ..]
-        label_t[index] = num_classes - 1 # 25 for all outliers !!
+        label_tt[index] = num_classes - 1 # 25 for all outliers !!
         # [.., .., ..., 25, .., 25, ..,  25, ..]
 
         index1 = np.where(y_pred == 1)  # for known classes [bs-n, ...]
@@ -406,20 +306,20 @@ def train(
         if not isinstance(centroids, torch.Tensor):
             centroids = torch.from_numpy(centroids).to(device)
         known_idx = NearestNeighbor(known, centroids)
-        label_t[index1] = known_idx.squeeze()  # asigning target domain classes on bsis of KNN
+        label_tt[index1] = known_idx.squeeze()  # asigning target domain classes on bsis of KNN
                                                 # values from 0 to 24 for all known classes 
                                                 # # [5, 6, 0, 25, 24, 25, 3, 25, 6]
         # 3. store psudo labels and find acc. 
         f_s, f_t = gaa(f_s, f_t)
         y_s, y_t = netC(f_s), netC(f_t)
         y_s, y_t = softmax(y_s), softmax(y_t)
-        # print(label_t)
+        # print(label_tt)
         cls_loss_s = F.cross_entropy(y_s, label_s)
-        cls_loss_t = F.cross_entropy(y_t, label_t)
+        cls_loss_t = F.cross_entropy(y_t, label_tt)
         loss = cls_loss_s + cls_loss_t * args.trade_off
 
         cls_acc = accuracy(y_s, label_s)[0]
-        tgt_acc = accuracy(y_t, label_t)[0]
+        tgt_acc = accuracy(y_t, label_tt)[0]
 
         losses.update(loss.item(), x_s.size(0))
         cls_accs.update(cls_acc.item(), x_s.size(0))
@@ -529,7 +429,7 @@ if __name__ == "__main__":
 
     parser.add_argument("-d", "--dataset", default="OfficeHome")
     # parser.add_argument("-a",c "--arch", default="resnet50")
-    parser.add_argument("-b", "--batch_size", type=int, default=4)
+    parser.add_argument("-b", "--batch_size", type=int, default=8)
     parser.add_argument("--lr", "--learning_rate", default=0.002)
     parser.add_argument("--lr-gamma", default=0.001)
     parser.add_argument("--bottleneck-dim", default=256)
@@ -537,8 +437,8 @@ if __name__ == "__main__":
     parser.add_argument("--lr-decay", default=0.75)
     parser.add_argument("--momentum", default=0.9)
     parser.add_argument("--wd", "--weight-decay", default=1e-3)
-    parser.add_argument("-j", "--workers", default=0)
-    parser.add_argument("--epochs", type=int, default=1000)
+    parser.add_argument("-j", "--workers", default=4)
+    parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--root", default="./data")
     parser.add_argument("-s", "--source", help="source domain(s)", default="Ar,Pr")
     parser.add_argument("-t", "--target", help="target domain(s)", default="Cl,Rw")
@@ -549,7 +449,7 @@ if __name__ == "__main__":
     parser.add_argument('--layer', type=str, default="wn", choices=["linear", "wn"])
     parser.add_argument('--classifier', type=str, default="bn", choices=["ori", "bn"])
     parser.add_argument("--trade-off", default=1.0, type=float)
-    parser.add_argument("-i", "--iters-per-epoch", default=500, type=int)
+    parser.add_argument("-i", "--iters-per-epoch", default=1, type=int)
     parser.add_argument("--print-freq", default=100, type=int)
     parser.add_argument("--log", type=str, default="degaa")
     parser.add_argument("--seed", default=0, type=int)

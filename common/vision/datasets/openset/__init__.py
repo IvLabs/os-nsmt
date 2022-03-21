@@ -77,11 +77,11 @@ def default_open_set(dataset_class: ClassVar, source: bool) -> ClassVar:
         else:
             private_classes = Office31.CLASSES[20:]
     elif dataset_class == OfficeHome:
-        public_classes = OfficeHome.CLASSES[:25]
+        public_classes = sorted(OfficeHome.CLASSES)[:25]
         if source:
             private_classes = ()
         else:
-            private_classes = OfficeHome.CLASSES[25:]
+            private_classes = sorted(OfficeHome.CLASSES)[25:]
     elif dataset_class == VisDA2017:
         public_classes = ('bicycle', 'bus', 'car', 'motorcycle', 'train', 'truck')
         if source:
