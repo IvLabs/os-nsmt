@@ -20,6 +20,7 @@ import torchvision.transforms as T
 import torch.nn.functional as F
 from torch.utils.data.dataset import ConcatDataset
 import numpy as np
+from tqdm import tqdm
 
 
 sys.path.append("..")
@@ -94,6 +95,7 @@ def main(args: argparse.Namespace):
         cudnn.benchmark = True
 
 
+    global val_loader
     num_classes, train_source_loader, train_target_loader, val_loader, test_loader = setup_datasets(args, concat=True)
     # num_classes = num_classes - 1
     print(f"Num Classes: {num_classes}")
@@ -136,6 +138,7 @@ def main(args: argparse.Namespace):
         num_heads=4,
     ).to(device)
 
+    global classifier
     classifier = [netF, netB, netC]
 
     # optimizer = SGD(classifier.get_parameters(), args.lr, momentum = args.momentum, weight_decay = args.wd, nesterov = True)
@@ -174,29 +177,20 @@ def main(args: argparse.Namespace):
         exit(0)
         return
 
-    best_h_score = 0.0
-    for epoch in range(args.epochs):
-        train(
-            train_source_iter,
-            train_target_iter,
-            classifier,
-            gaa,
-            centroids,
-            prototypes,
-            optimizer,
-            lr_scheduler,
-            epoch,
-            args,
-            num_classes
-        )
-        h_score = validate(val_loader, classifier, prototypes, args)
+    train(
+        train_source_iter,
+        train_target_iter,
+        classifier,
+        gaa,
+        centroids,
+        prototypes,
+        optimizer,
+        lr_scheduler,
+        # epoch,
+        args,
+        num_classes
+    )
 
-        if h_score > best_h_score:
-            torch.save(netF, osp.join(args.output_dir, "latest_source_F.pt"))
-            torch.save(netB, osp.join(args.output_dir, "latest_source_B.pt"))
-            torch.save(netC, osp.join(args.output_dir, "latest_source_C.pt"))
-
-    print("best_h_score = {:3.1f}".format(best_h_score))
 
     torch.save(netF, osp.join(args.output_dir, "final_source_F.pt"))
     torch.save(netB, osp.join(args.output_dir, "final_source_B.pt"))
@@ -225,126 +219,161 @@ def train(
     prototypes,
     optimizer: SGD,
     lr_scheduler: LambdaLR,
-    epoch: int,
+    # epoch: int,
     args: argparse.Namespace,
     num_classes=65,
 ):
+    best_h_score = 0.0
+    F_S, F_T, Label_S, Label_T = [], [], [], []
+    for epoch in range(args.epochs):
 
-    global counter
+        global counter
 
-    batch_time = AverageMeter("Time", ":5.2f")
-    data_time = AverageMeter("Data", ":5.2f")
-    losses = AverageMeter("Loss", ":6.2f")
-    cls_accs = AverageMeter("Cls Acc", ":3.1f")
-    tgt_accs = AverageMeter("Tgt Acc", ":3.1f")
-    progress = ProgressMeter(
-        args.iters_per_epoch,
-        [batch_time, data_time, losses, cls_accs, tgt_accs],
-        prefix="Epoch: [{}]".format(epoch),
-    )
+        batch_time = AverageMeter("Time", ":5.2f")
+        data_time = AverageMeter("Data", ":5.2f")
+        losses = AverageMeter("Loss", ":6.2f")
+        cls_accs = AverageMeter("Cls Acc", ":3.1f")
+        tgt_accs = AverageMeter("Tgt Acc", ":3.1f")
+        progress = ProgressMeter(
+            args.iters_per_epoch,
+            [batch_time, data_time, losses, cls_accs, tgt_accs],
+            prefix="Epoch: [{}]".format(epoch),
+        )
 
-    netF, netB, netC = model[0], model[1], model[2]
-    netF.train()
-    netB.train()
-    netC.train()
-    gaa.train()
-    clf = LocalOutlierFactor(n_neighbors=20,  contamination=0.1)
-    softmax = nn.Softmax(dim=1)
+        netF, netB, netC = model[0], model[1], model[2]
+        netF.train()
+        netB.train()
+        netC.train()
+        gaa.train()
+        clf = LocalOutlierFactor(n_neighbors=20,  contamination=0.1)
+        softmax = nn.Softmax(dim=1)
 
-    end = time.time()
-    for i in range(args.iters_per_epoch):
-        (x_s, label_s), ds_idx = next(train_source_iter)
-        (x_t, label_t), dt_idx = next(train_target_iter)
-
-        x_s = x_s.to(device)
-        label_s = label_s.to(device)
-        x_t = x_t.to(device)
-        label_t = label_t.to(device)
-        
-        x = torch.cat((x_s, x_t), dim=0)  # x.shape [bs*2, 3, 224]
-        dom_idx = torch.cat((ds_idx, dt_idx), dim=0) # [bs*2]
-
-        data_time.update(time.time() - end)
-        # x_s : Art + Webcam
-        # torch.where(embd, idx=doimain_indxs) # shape: [bs*num_domains, 512]
-        # ds_embd = prototypes[ds_idx]  # shape: [bs, 512]
-        # dt_embd = prototypes[dt_idx]
-        # d_embd = torch.cat((ds_embd, dt_embd), dim=0)
-        # embd.shape [bs*2, 512]
-        # embd[:bs] = embd{1},
-        # f = netB(netF(x)) # Seperate and contact netF(x) with embedding along dim 1
-        feats = netF(x)
-        f = attach_embd(prototypes, feats, dom_idx) # [bs*2, 2048+512]
-        # f = torch.cat([feats, d_embd], dim=1)  # [bs*2, 2048+512]
-        f = netB(f)
-
-        # y_s, y_t = y.chunk(2, dim=0)
-        f_s, f_t = f.chunk(2, dim=0)
-
-
-        # label_s = torch.empty_like(label_s) # shape [bs]
-        # f_s_numpy = f_s.clone().cpu().detach().numpy()
-        # source_pred= clf.fit_predict(f_s_numpy) # 4. pass whole dataset through LOF
-        # print(label_s, "\n", source_pred)
-        # 1. Try training without Lof and wothout unknown classes. Using target labels expracted from centroids
-
-        label_tt = torch.empty_like(label_t) # shape [bs]
-        f_t_numpy = f_t.clone().cpu().detach().numpy()
-        y_pred = clf.fit_predict(f_t_numpy) # 2. store y_pred and calc unknown accuracy
-        index = np.where(y_pred == -1)  # for n outliers, shape [n, ..]
-        label_tt[index] = num_classes - 1 # 25 for all outliers !!
-        # [.., .., ..., 25, .., 25, ..,  25, ..]
-
-        index1 = np.where(y_pred == 1)  # for known classes [bs-n, ...]
-
-        """
-    get centroids and find classes.
-    """
-        # bottle_s = bottle(f_s)
-        # bottle_t = bottle(f_t)
-        known = f_t[index1]
-        if not isinstance(centroids, torch.Tensor):
-            centroids = torch.from_numpy(centroids).to(device)
-        known_idx = NearestNeighbor(known, centroids)
-        label_tt[index1] = known_idx.squeeze()  # asigning target domain classes on bsis of KNN
-                                                # values from 0 to 24 for all known classes 
-                                                # # [5, 6, 0, 25, 24, 25, 3, 25, 6]
-        # 3. store psudo labels and find acc. 
-        f_s, f_t = gaa(f_s, f_t)
-        y_s, y_t = netC(f_s), netC(f_t)
-        y_s, y_t = softmax(y_s), softmax(y_t)
-        # print(label_tt)
-        cls_loss_s = F.cross_entropy(y_s, label_s)
-        cls_loss_t = F.cross_entropy(y_t, label_tt)
-        loss = cls_loss_s + cls_loss_t * args.trade_off
-
-        cls_acc = accuracy(y_s, label_s)[0]
-        tgt_acc = accuracy(y_t, label_tt)[0]
-
-        losses.update(loss.item(), x_s.size(0))
-        cls_accs.update(cls_acc.item(), x_s.size(0))
-        tgt_accs.update(tgt_acc.item(), x_s.size(0))
-
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-        lr_scheduler.step()
-
-        batch_time.update(time.time() - end)
+        args.iters_per_epoch = int(8704/args.batch_size)
         end = time.time()
 
-        counter = counter + 1
-        if args.wandb:
-            wandb.log(
-                {"accuracy_source": cls_acc, "accuracy_target": tgt_acc, "loss": loss}
-            )
-        if args.tensorboard:
-            writer.add_scalar('accuracy_source', cls_acc, counter)
-            writer.add_scalar('accuracy_target', cls_acc, counter)
-            writer.add_scalar('loss', loss, counter)
 
-        if i % args.print_freq == 0:
-            progress.display(i)
+        if epoch == 0 or epoch % args.episodes == 0:
+            F_S, F_T, Label_S, Label_T = [], [], [], []
+            for i in range(args.iters_per_epoch):
+                (x_s, label_s), ds_idx = next(train_source_iter)
+                (x_t, label_t), dt_idx = next(train_target_iter)
+                x_s = x_s.to(device)
+                x_t = x_t.to(device)
+
+                feat_s, feat_t = netF(x_s), netF(x_t)
+                f_s, f_t = attach_embd(prototypes, feat_s, ds_idx), attach_embd(prototypes, feat_t, dt_idx)
+                f_s, f_t = netB(f_s), netB(f_t)
+
+                F_S.append
+                
+
+
+        for i in range(args.iters_per_epoch):
+            (x_s, label_s), ds_idx = next(train_source_iter)
+            (x_t, label_t), dt_idx = next(train_target_iter)
+
+            x_s = x_s.to(device)
+            label_s = label_s.to(device)
+            x_t = x_t.to(device)
+            label_t = label_t.to(device)
+            
+            x = torch.cat((x_s, x_t), dim=0)  # x.shape [bs*2, 3, 224]
+            dom_idx = torch.cat((ds_idx, dt_idx), dim=0) # [bs*2]
+
+            data_time.update(time.time() - end)
+            '''
+            # x_s : Art + Webcam
+            # torch.where(embd, idx=doimain_indxs) # shape: [bs*num_domains, 512]
+            # ds_embd = prototypes[ds_idx]  # shape: [bs, 512]
+            # dt_embd = prototypes[dt_idx]
+            # d_embd = torch.cat((ds_embd, dt_embd), dim=0)
+            # embd.shape [bs*2, 512]
+            # embd[:bs] = embd{1},
+            # f = netB(netF(x)) # Seperate and contact netF(x) with embedding along dim 1
+            feats = netF(x)
+            f = attach_embd(prototypes, feats, dom_idx) # [bs*2, 2048+512]
+            # f = torch.cat([feats, d_embd], dim=1)  # [bs*2, 2048+512]
+            f = netB(f)
+
+            # y_s, y_t = y.chunk(2, dim=0)
+            f_s, f_t = f.chunk(2, dim=0)
+            '''
+                
+
+
+
+            # label_s = torch.empty_like(label_s) # shape [bs]
+            # f_s_numpy = f_s.clone().cpu().detach().numpy()
+            # source_pred= clf.fit_predict(f_s_numpy) # 4. pass whole dataset through LOF
+            # print(label_s, "\n", source_pred)
+            # 1. Try training without Lof and wothout unknown classes. Using target labels expracted from centroids
+
+            label_tt = torch.empty_like(label_t) # shape [bs]
+            f_t_numpy = f_t.clone().cpu().detach().numpy()
+            y_pred = clf.fit_predict(f_t_numpy) # 2. store y_pred and calc unknown accuracy
+            index = np.where(y_pred == -1)  # for n outliers, shape [n, ..]
+            label_tt[index] = num_classes - 1 # 25 for all outliers !!
+            # [.., .., ..., 25, .., 25, ..,  25, ..]
+
+            index1 = np.where(y_pred == 1)  # for known classes [bs-n, ...]
+
+            """
+        get centroids and find classes.
+        """
+            # bottle_s = bottle(f_s)
+            # bottle_t = bottle(f_t)
+            known = f_t[index1]
+            if not isinstance(centroids, torch.Tensor):
+                centroids = torch.from_numpy(centroids).to(device)
+            known_idx = NearestNeighbor(known, centroids)
+            label_tt[index1] = known_idx.squeeze()  # asigning target domain classes on bsis of KNN
+                                                    # values from 0 to 24 for all known classes 
+                                                    # # [5, 6, 0, 25, 24, 25, 3, 25, 6]
+            # 3. store psudo labels and find acc. 
+            f_s, f_t = gaa(f_s, f_t)
+            y_s, y_t = netC(f_s), netC(f_t)
+            y_s, y_t = softmax(y_s), softmax(y_t)
+            # print(label_tt)
+            cls_loss_s = F.cross_entropy(y_s, label_s)
+            cls_loss_t = F.cross_entropy(y_t, label_tt)
+            loss = cls_loss_s + cls_loss_t * args.trade_off
+
+            cls_acc = accuracy(y_s, label_s)[0]
+            tgt_acc = accuracy(y_t, label_tt)[0]
+
+            losses.update(loss.item(), x_s.size(0))
+            cls_accs.update(cls_acc.item(), x_s.size(0))
+            tgt_accs.update(tgt_acc.item(), x_s.size(0))
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            lr_scheduler.step()
+
+            batch_time.update(time.time() - end)
+            end = time.time()
+
+            counter = counter + 1
+            if args.wandb:
+                wandb.log(
+                    {"accuracy_source": cls_acc, "accuracy_target": tgt_acc, "loss": loss}
+                )
+            if args.tensorboard:
+                writer.add_scalar('accuracy_source', cls_acc, counter)
+                writer.add_scalar('accuracy_target', cls_acc, counter)
+                writer.add_scalar('loss', loss, counter)
+
+            if i % args.print_freq == 0:
+                progress.display(i)
+    
+        h_score = validate(val_loader, classifier, prototypes, args)
+
+        if h_score > best_h_score:
+            torch.save(netF, osp.join(args.output_dir, "latest_source_F.pt"))
+            torch.save(netB, osp.join(args.output_dir, "latest_source_B.pt"))
+            torch.save(netC, osp.join(args.output_dir, "latest_source_C.pt"))
+
+    print("best_h_score = {:3.1f}".format(best_h_score))
 
 
 def validate(val_loader: DataLoader, model: Classifier, prototypes, args: argparse.Namespace):
@@ -436,6 +465,7 @@ if __name__ == "__main__":
     parser.add_argument("--feature-dim", default=256)
     parser.add_argument("--lr-decay", default=0.75)
     parser.add_argument("--momentum", default=0.9)
+    parser.add_argument("--episodes", default=20)
     parser.add_argument("--wd", "--weight-decay", default=1e-3)
     parser.add_argument("-j", "--workers", default=4)
     parser.add_argument("--epochs", type=int, default=1)
