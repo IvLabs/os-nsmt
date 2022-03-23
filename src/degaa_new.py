@@ -9,19 +9,19 @@ import os.path as osp
 import os
 from sklearn.neighbors import LocalOutlierFactor
 from sklearn.neighbors import KNeighborsClassifier
-from sklearn.metrics import confusion_matrix
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 import torch
 import torch.nn as nn
 import torch.backends.cudnn as cudnn
 from torch.optim import SGD
 from torch.optim.lr_scheduler import LambdaLR
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, TensorDataset
 import torchvision.transforms as T
 import torch.nn.functional as F
 from torch.utils.data.dataset import ConcatDataset
 import numpy as np
 from tqdm import tqdm
-
+import matplotlib.pyplot as plt
 
 sys.path.append("..")
 sys.path.append("")
@@ -162,6 +162,7 @@ def main(args: argparse.Namespace):
     # summary(gaa, [(32, 1024),(32, 1024)])
     centroids = np.load(args.centroid_path)
     centroids = centroids[:num_classes-1]
+    centroids = torch.from_numpy(centroids).to(device)
     # print(centroids.shape)
 
     prototypes_file = os.path.join(args.proto_path)
@@ -225,6 +226,7 @@ def train(
 ):
     best_h_score = 0.0
     F_S, F_T, Label_S, Label_T = [], [], [], []
+    Temp_DataLoader = None
     for epoch in range(args.epochs):
 
         global counter
@@ -251,36 +253,99 @@ def train(
         args.iters_per_epoch = int(8704/args.batch_size)
         end = time.time()
 
-
+        a = 0
         if epoch == 0 or epoch % args.episodes == 0:
             F_S, F_T, Label_S, Label_T = [], [], [], []
-            for i in range(args.iters_per_epoch):
+            for i in tqdm(range(args.iters_per_epoch), "LOF and Psuedo labels"):
                 (x_s, label_s), ds_idx = next(train_source_iter)
                 (x_t, label_t), dt_idx = next(train_target_iter)
                 x_s = x_s.to(device)
                 x_t = x_t.to(device)
 
-                feat_s, feat_t = netF(x_s), netF(x_t)
-                f_s, f_t = attach_embd(prototypes, feat_s, ds_idx), attach_embd(prototypes, feat_t, dt_idx)
-                f_s, f_t = netB(f_s), netB(f_t)
+                # feat_s, feat_t = netF(x_s), netF(x_t)
+                # f_s, f_t = attach_embd(prototypes, feat_s, ds_idx), attach_embd(prototypes, feat_t, dt_idx)
+                # f_s, f_t = netB(f_s), netB(f_t)
+                x = torch.cat((x_s, x_t), dim=0)
+                dom_idx = torch.cat((ds_idx, dt_idx), dim=0)
+                feats = netF(x)
+                f = attach_embd(prototypes, feats, dom_idx)
+                f = netB(f)
+                f_s, f_t = f.chunk(2, dim=0)
 
-                F_S.append
-                
-
-
-        for i in range(args.iters_per_epoch):
-            (x_s, label_s), ds_idx = next(train_source_iter)
-            (x_t, label_t), dt_idx = next(train_target_iter)
-
-            x_s = x_s.to(device)
-            label_s = label_s.to(device)
-            x_t = x_t.to(device)
-            label_t = label_t.to(device)
+                F_S.append(f_s.cpu().detach())
+                Label_S.append(label_s.cpu().detach())
+                Label_T.append(label_t.cpu().detach())
+                F_T.append(f_t.cpu().detach().numpy())
+                a +=1
+                if a > 3:
+                    break
             
-            x = torch.cat((x_s, x_t), dim=0)  # x.shape [bs*2, 3, 224]
-            dom_idx = torch.cat((ds_idx, dt_idx), dim=0) # [bs*2]
+            F_S = torch.cat(F_S)
+            Label_S = torch.cat(Label_S)
+            Label_T = torch.cat(Label_T)
 
+            F_T = np.concatenate(F_T)
+            Y_Preds = clf.fit_predict(F_T)
+            logger.write(f"EPOCH: {epoch:3.0f} LOF Unknown accuracy (num_predicted_outliers / num_total_unknown): {(sum(Y_Preds==-1) / sum(Label_T==25).item()):.3f}\n")
+
+            Label_TT = torch.empty_like(Label_T)
+            # index = np.where(Y_Preds == -1)[0]
+            index = (Y_Preds == -1)
+            Label_TT[index] = num_classes - 1
+
+            Known = F_T[~index]
+            Known_idx = NearestNeighbor(torch.from_numpy(Known).to(device), centroids).cpu()
+            Label_TT[~index] = Known_idx.squeeze()
+            logger.write(f"EPOCH: {epoch:3.0f} Pseudo Label accuracy: {(Label_TT[~index].eq(Label_T[~index]).sum() / Label_T[~index].shape[0]):.3f}")
+
+            F_T = torch.from_numpy(F_T)
+            Temp_DataLoader = DataLoader(TensorDataset(F_S, Label_S, F_T, Label_TT), args.batch_size, shuffle=True, num_workers=args.workers)
+
+
+        for (f_s, y_s, f_t, y_t) in tqdm(Temp_DataLoader, "GAA"):
+            label_s, label_t = label_s.to(device), label_t.to(device)
             data_time.update(time.time() - end)
+            f_s, f_t = gaa(f_s.to(device), f_t.to(device))
+            y_s, y_t = netC(f_s), netC(f_t)
+            y_s, y_t = softmax(y_s), softmax(y_t)
+
+            cls_loss_s = F.cross_entropy(y_s, label_s)
+            cls_loss_t = F.cross_entropy(y_t, label_t)
+            loss = cls_loss_s + cls_loss_t * args.trade_off
+
+
+            cls_acc = accuracy(y_s, label_s)[0]
+            tgt_acc = accuracy(y_t, label_t)[0]
+
+            losses.update(loss.item(), x_s.size(0))
+            cls_accs.update(cls_acc.item(), x_s.size(0))
+            tgt_accs.update(tgt_acc.item(), x_s.size(0))
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            lr_scheduler.step()
+
+            batch_time.update(time.time() - end)
+            end = time.time()
+
+            counter = counter + 1
+            if args.wandb:
+                wandb.log(
+                    {"accuracy_source": cls_acc, "accuracy_target": tgt_acc, "loss": loss}
+                )
+            if args.tensorboard:
+                writer.add_scalar('accuracy_source', cls_acc, counter)
+                writer.add_scalar('accuracy_target', cls_acc, counter)
+                writer.add_scalar('loss', loss, counter)
+
+            if i % args.print_freq == 0:
+                progress.display(i)
+
+
+
+
+        
             '''
             # x_s : Art + Webcam
             # torch.where(embd, idx=doimain_indxs) # shape: [bs*num_domains, 512]
@@ -308,64 +373,6 @@ def train(
             # print(label_s, "\n", source_pred)
             # 1. Try training without Lof and wothout unknown classes. Using target labels expracted from centroids
 
-            label_tt = torch.empty_like(label_t) # shape [bs]
-            f_t_numpy = f_t.clone().cpu().detach().numpy()
-            y_pred = clf.fit_predict(f_t_numpy) # 2. store y_pred and calc unknown accuracy
-            index = np.where(y_pred == -1)  # for n outliers, shape [n, ..]
-            label_tt[index] = num_classes - 1 # 25 for all outliers !!
-            # [.., .., ..., 25, .., 25, ..,  25, ..]
-
-            index1 = np.where(y_pred == 1)  # for known classes [bs-n, ...]
-
-            """
-        get centroids and find classes.
-        """
-            # bottle_s = bottle(f_s)
-            # bottle_t = bottle(f_t)
-            known = f_t[index1]
-            if not isinstance(centroids, torch.Tensor):
-                centroids = torch.from_numpy(centroids).to(device)
-            known_idx = NearestNeighbor(known, centroids)
-            label_tt[index1] = known_idx.squeeze()  # asigning target domain classes on bsis of KNN
-                                                    # values from 0 to 24 for all known classes 
-                                                    # # [5, 6, 0, 25, 24, 25, 3, 25, 6]
-            # 3. store psudo labels and find acc. 
-            f_s, f_t = gaa(f_s, f_t)
-            y_s, y_t = netC(f_s), netC(f_t)
-            y_s, y_t = softmax(y_s), softmax(y_t)
-            # print(label_tt)
-            cls_loss_s = F.cross_entropy(y_s, label_s)
-            cls_loss_t = F.cross_entropy(y_t, label_tt)
-            loss = cls_loss_s + cls_loss_t * args.trade_off
-
-            cls_acc = accuracy(y_s, label_s)[0]
-            tgt_acc = accuracy(y_t, label_tt)[0]
-
-            losses.update(loss.item(), x_s.size(0))
-            cls_accs.update(cls_acc.item(), x_s.size(0))
-            tgt_accs.update(tgt_acc.item(), x_s.size(0))
-
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            lr_scheduler.step()
-
-            batch_time.update(time.time() - end)
-            end = time.time()
-
-            counter = counter + 1
-            if args.wandb:
-                wandb.log(
-                    {"accuracy_source": cls_acc, "accuracy_target": tgt_acc, "loss": loss}
-                )
-            if args.tensorboard:
-                writer.add_scalar('accuracy_source', cls_acc, counter)
-                writer.add_scalar('accuracy_target', cls_acc, counter)
-                writer.add_scalar('loss', loss, counter)
-
-            if i % args.print_freq == 0:
-                progress.display(i)
-    
         h_score = validate(val_loader, classifier, prototypes, args)
 
         if h_score > best_h_score:
@@ -430,7 +437,14 @@ def validate(val_loader: DataLoader, model: Classifier, prototypes, args: argpar
 
 
         matrix = confusion_matrix(all_label, all_output)
+        disp = ConfusionMatrixDisplay(confusion_matrix=matrix)
+        disp.plot()
+        plt.show()
         print(matrix)
+
+        if args.wandb:
+            wandb.log({"conf_mat": disp})
+
 
         accs = matrix.diagonal()/matrix.sum(axis=1)
         print(accs)
@@ -458,7 +472,7 @@ if __name__ == "__main__":
 
     parser.add_argument("-d", "--dataset", default="OfficeHome")
     # parser.add_argument("-a",c "--arch", default="resnet50")
-    parser.add_argument("-b", "--batch_size", type=int, default=8)
+    parser.add_argument("-b", "--batch_size", type=int, default=7)
     parser.add_argument("--lr", "--learning_rate", default=0.002)
     parser.add_argument("--lr-gamma", default=0.001)
     parser.add_argument("--bottleneck-dim", default=256)
