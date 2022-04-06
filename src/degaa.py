@@ -349,7 +349,7 @@ def train(
     netB.train()
     netC.train()
     gaa.train()
-    clf = LocalOutlierFactor(n_neighbors=num_classes + 1, contamination=0.1)
+    clf = LocalOutlierFactor(n_neighbors=2000, contamination=0.4)
     softmax = nn.Softmax(dim=1)
 
     end = time.time()
@@ -377,7 +377,8 @@ def train(
         feats = netF(x)
         f = attach_embd(prototypes, feats, dom_idx) # [bs*2, 2048+512]
         # f = torch.cat([feats, d_embd], dim=1)  # [bs*2, 2048+512]
-        f = netB(f)
+        f = netB(f)  # shape [bs*2, 256] 
+        f = F.normalize(f,dim=0)
 
         # y_s, y_t = y.chunk(2, dim=0)
         f_s, f_t = f.chunk(2, dim=0)

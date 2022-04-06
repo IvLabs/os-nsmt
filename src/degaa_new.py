@@ -43,6 +43,7 @@ from torch.utils.tensorboard import SummaryWriter
 # from torchsummary import summary
 
 import wandb
+os.environ['WANDB_API_KEY'] = '93b09c048a71a2becc88791b28475f90622b0f63'
 
 warnings.filterwarnings("ignore")
 
@@ -71,7 +72,8 @@ def main(args: argparse.Namespace):
     if args.wandb:
         mode = "online" if args.wandb else "disabled"
         wandb.init(project="degaa", entity="abd1", mode=mode)
-        wandb.run.name = "run_" + str(args.source) + str(args.target)
+        wandb.run.name = wandb.run.name + str(args.source) + str(args.target)
+        wandb.run.notes = "Passing Whole data through LOF"
     if args.tensorboard:
         global writer
         writer = SummaryWriter(os.path.join(args.output_dir,"tensorboard"))
@@ -247,16 +249,16 @@ def train(
         netB.train()
         netC.train()
         gaa.train()
-        clf = LocalOutlierFactor(n_neighbors=20,  contamination=0.1)
+        clf = LocalOutlierFactor(n_neighbors=2000,  contamination=0.4, metric = "cosine")
         softmax = nn.Softmax(dim=1)
 
         args.iters_per_epoch = int(8704/args.batch_size)
         end = time.time()
 
-        a = 0
+        # a = 0
         if epoch == 0 or epoch % args.episodes == 0:
             F_S, F_T, Label_S, Label_T = [], [], [], []
-            for i in tqdm(range(args.iters_per_epoch), "LOF and Psuedo labels"):
+            for i in tqdm(range(args.iters_per_epoch), "LOF and Pseudo labels"):
                 (x_s, label_s), ds_idx = next(train_source_iter)
                 (x_t, label_t), dt_idx = next(train_target_iter)
                 x_s = x_s.to(device)
@@ -270,15 +272,16 @@ def train(
                 feats = netF(x)
                 f = attach_embd(prototypes, feats, dom_idx)
                 f = netB(f)
+                f = F.normalize(f, dim=0)
                 f_s, f_t = f.chunk(2, dim=0)
 
                 F_S.append(f_s.cpu().detach())
                 Label_S.append(label_s.cpu().detach())
                 Label_T.append(label_t.cpu().detach())
                 F_T.append(f_t.cpu().detach().numpy())
-                a +=1
-                if a > 3:
-                    break
+                # a +=1
+                # if a > 3:
+                #     break
             
             F_S = torch.cat(F_S)
             Label_S = torch.cat(Label_S)
@@ -297,6 +300,11 @@ def train(
             Known_idx = NearestNeighbor(torch.from_numpy(Known).to(device), centroids).cpu()
             Label_TT[~index] = Known_idx.squeeze()
             logger.write(f"EPOCH: {epoch:3.0f} Pseudo Label accuracy: {(Label_TT[~index].eq(Label_T[~index]).sum() / Label_T[~index].shape[0]):.3f}")
+
+            if args.wandb:
+                wandb.log(
+                    {"LOF_accuracy": sum(Y_Preds==-1) / sum(Label_T==25).item() , "Pseudo_label_accuracy": Label_TT[~index].eq(Label_T[~index]).sum() / Label_T[~index].shape[0]}
+                )
 
             F_T = torch.from_numpy(F_T)
             Temp_DataLoader = DataLoader(TensorDataset(F_S, Label_S, F_T, Label_TT), args.batch_size, shuffle=True, num_workers=args.workers)
@@ -437,17 +445,17 @@ def validate(val_loader: DataLoader, model: Classifier, prototypes, args: argpar
 
 
         matrix = confusion_matrix(all_label, all_output)
-        disp = ConfusionMatrixDisplay(confusion_matrix=matrix)
-        disp.plot()
-        plt.show()
-        print(matrix)
+        # disp = ConfusionMatrixDisplay(confusion_matrix=matrix)
+        # disp.plot()
+        # plt.show()
+        # print(matrix)
 
         if args.wandb:
-            wandb.log({"conf_mat": disp})
-
+            cm = wandb.plot.confusion_matrix(y_true=all_label.numpy(), preds=all_output.numpy())
+            wandb.log({"conf_mat": cm})
 
         accs = matrix.diagonal()/matrix.sum(axis=1)
-        print(accs)
+        # print(accs)
 
         # acc_global, accs, iu = confmat.compute()
         all_acc = np.mean(accs).item() * 100
