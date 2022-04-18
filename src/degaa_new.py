@@ -9,7 +9,7 @@ import os.path as osp
 import os
 from sklearn.neighbors import LocalOutlierFactor
 from sklearn.neighbors import KNeighborsClassifier
-from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+from sklearn.metrics import confusion_matrix
 import torch
 import torch.nn as nn
 import torch.backends.cudnn as cudnn
@@ -105,7 +105,7 @@ def main(args: argparse.Namespace):
     train_target_iter = ForeverDataIterator(train_target_loader)
 
     # backbone = models.__dict__[args.arch](pretrained = True)
-    netF = network.ResBase(res_name=args.net).to(device)
+    netF = network.ResBase(res_name=args.net).to('cpu')
 
     # num_classes = args.num_classes  # train_source_dataset.num_classes
     # num_classes = len(train_source_dataset.datasets[0].classes)
@@ -119,18 +119,21 @@ def main(args: argparse.Namespace):
         type=args.classifier,
         feature_dim=args.feature_dim + args.proto_dim, # 2048 + 512
         bottleneck_dim=args.bottleneck, # 256
-    ).to(device)
+    ).to('cpu')
     netC = network.feat_classifier(
         type=args.layer, class_num=args.num_classes, bottleneck_dim=args.bottleneck  # 256, #26
     ).to(device)
 
     modelpathF = f'{args.trained_wt}/{args.dataset}/{"".join(args.source)}/source_F.pt'
+    print("Loading netF from", modelpathF)
     netF.load_state_dict(torch.load(modelpathF))
     
     modelpathB = f'{args.trained_wt}/{args.dataset}/{"".join(args.source)}/source_B.pt'
+    print("Loading netB from", modelpathB)
     netB.load_state_dict(torch.load(modelpathB))
 
     modelpathC = f'{args.trained_wt}/{args.dataset}/{"".join(args.source)}/source_C.pt'
+    print("Loading netC from", modelpathC)
     netC.load_state_dict(torch.load(modelpathC))
 
     gaa = GAA(
@@ -164,20 +167,18 @@ def main(args: argparse.Namespace):
     # summary(gaa, [(32, 1024),(32, 1024)])
     centroids = np.load(args.centroid_path)
     centroids = centroids[:num_classes-1]
-    centroids = torch.from_numpy(centroids).to(device)
+    centroids = torch.from_numpy(centroids).to('cpu')
     # print(centroids.shape)
 
     prototypes_file = os.path.join(args.proto_path)
     prototypes = torch.load(prototypes_file)
     # print(prototypes.keys())
     prototypes = torch.stack(list(prototypes.values()), dim=0)  # shape: [4, 512]
-    prototypes = prototypes.to(device)
+    prototypes = prototypes.to('cpu')
 
     if args.phase == "test":
-        h_score = validate(val_loader, classifier, prototypes, args)
-        # acc1 = validate(test_loader, classifier, args)
-        print(h_score)
-        exit(0)
+        acc = validate(val_loader, classifier, prototypes, args)
+        print("val_acc = {:3.1f}".format(acc))
         return
 
     train(
@@ -194,13 +195,12 @@ def main(args: argparse.Namespace):
         num_classes
     )
 
+    torch.save(netF.state_dict(), osp.join(args.output_dir, "final_source_F.pt"))
+    torch.save(netB.state_dict(), osp.join(args.output_dir, "final_source_B.pt"))
+    torch.save(netC.state_dict(), osp.join(args.output_dir, "final_source_C.pt"))
 
-    torch.save(netF, osp.join(args.output_dir, "final_source_F.pt"))
-    torch.save(netB, osp.join(args.output_dir, "final_source_B.pt"))
-    torch.save(netC, osp.join(args.output_dir, "final_source_C.pt"))
-
-    h_score = validate(test_loader, classifier, prototypes, args)
-    print("test_h_score = {:3.1f}".format(h_score))
+    acc = validate(val_loader, classifier, prototypes, args)
+    print("val_acc = {:3.1f}".format(acc))
 
     logger.close()
     if args.tensorboard:
@@ -226,7 +226,7 @@ def train(
     args: argparse.Namespace,
     num_classes=65,
 ):
-    best_h_score = 0.0
+    best_acc = 0.0
     F_S, F_T, Label_S, Label_T = [], [], [], []
     Temp_DataLoader = None
     for epoch in range(args.epochs):
@@ -252,7 +252,8 @@ def train(
         clf = LocalOutlierFactor(n_neighbors=2000,  contamination=0.4, metric = "cosine")
         softmax = nn.Softmax(dim=1)
 
-        args.iters_per_epoch = int(8704/args.batch_size)
+        # args.iters_per_epoch = int(8704/args.batch_size)
+        args.iters_per_epoch = len(train_source_iter)
         end = time.time()
 
         # a = 0
@@ -261,8 +262,8 @@ def train(
             for i in tqdm(range(args.iters_per_epoch), "LOF and Pseudo labels"):
                 (x_s, label_s), ds_idx = next(train_source_iter)
                 (x_t, label_t), dt_idx = next(train_target_iter)
-                x_s = x_s.to(device)
-                x_t = x_t.to(device)
+                # x_s = x_s.to(device)
+                # x_t = x_t.to(device)
 
                 # feat_s, feat_t = netF(x_s), netF(x_t)
                 # f_s, f_t = attach_embd(prototypes, feat_s, ds_idx), attach_embd(prototypes, feat_t, dt_idx)
@@ -275,10 +276,10 @@ def train(
                 f = F.normalize(f, dim=0)
                 f_s, f_t = f.chunk(2, dim=0)
 
-                F_S.append(f_s.cpu().detach())
-                Label_S.append(label_s.cpu().detach())
-                Label_T.append(label_t.cpu().detach())
-                F_T.append(f_t.cpu().detach().numpy())
+                F_S.append(f_s)
+                Label_S.append(label_s)
+                Label_T.append(label_t)
+                F_T.append(f_t)
                 # a +=1
                 # if a > 3:
                 #     break
@@ -286,44 +287,51 @@ def train(
             F_S = torch.cat(F_S)
             Label_S = torch.cat(Label_S)
             Label_T = torch.cat(Label_T)
+            F_T = torch.cat(F_T)
 
-            F_T = np.concatenate(F_T)
-            Y_Preds = clf.fit_predict(F_T)
-            logger.write(f"EPOCH: {epoch:3.0f} LOF Unknown accuracy (num_predicted_outliers / num_total_unknown): {(sum(Y_Preds==-1) / sum(Label_T==25).item()):.3f}\n")
-
+            # F_T = np.concatenate(F_T)
+            Y_Preds = clf.fit_predict(F_T.clone().detach().numpy())
+            unknown_acc = np.intersect1d(np.where(Y_Preds==-1), np.where(Label_T==25)).shape[0] / sum(Label_T==25)
+            logger.write(f"EPOCH: {epoch:3.0f} LOF Unknown accuracy (num_correct_predicted_outliers / num_total_outliers): {unknown_acc:.3f}\n")
+            logger.flush()
+            
             Label_TT = torch.empty_like(Label_T)
             # index = np.where(Y_Preds == -1)[0]
             index = (Y_Preds == -1)
-            Label_TT[index] = num_classes - 1
+            Label_TT[index] = num_classes - 1 # label=25 where y_pred=-1
 
             Known = F_T[~index]
             Known_idx = NearestNeighbor(torch.from_numpy(Known).to(device), centroids).cpu()
             Label_TT[~index] = Known_idx.squeeze()
-            logger.write(f"EPOCH: {epoch:3.0f} Pseudo Label accuracy: {(Label_TT[~index].eq(Label_T[~index]).sum() / Label_T[~index].shape[0]):.3f}")
+
+            psuedo_label_acc = Label_TT[~index].eq(Label_T[~index]).sum() / Label_T[~index].shape[0]
+            logger.write(f"EPOCH: {epoch:3.0f} Pseudo Label accuracy: {psuedo_label_acc:.3f}")
+            logger.flush()
+            print(f"EPOCH: {epoch:3.0f} Pseudo Label accuracy: {psuedo_label_acc:.3f}")
 
             if args.wandb:
                 wandb.log(
-                    {"LOF_accuracy": sum(Y_Preds==-1) / sum(Label_T==25).item() , "Pseudo_label_accuracy": Label_TT[~index].eq(Label_T[~index]).sum() / Label_T[~index].shape[0]}
+                    {"LOF_accuracy": unknown_acc , "Pseudo_label_accuracy": psuedo_label_acc}
                 )
 
-            F_T = torch.from_numpy(F_T)
+            # F_T = torch.from_numpy(F_T)
             Temp_DataLoader = DataLoader(TensorDataset(F_S, Label_S, F_T, Label_TT), args.batch_size, shuffle=True, num_workers=args.workers)
 
 
         for (f_s, y_s, f_t, y_t) in tqdm(Temp_DataLoader, "GAA"):
-            label_s, label_t = label_s.to(device), label_t.to(device)
             data_time.update(time.time() - end)
+            y_s, y_t = y_s.to(device), y_t.to(device)
             f_s, f_t = gaa(f_s.to(device), f_t.to(device))
-            y_s, y_t = netC(f_s), netC(f_t)
-            y_s, y_t = softmax(y_s), softmax(y_t)
+            y_s_pred, y_t_pred = netC(f_s), netC(f_t)
+            y_s_pred, y_t_pred = softmax(y_s_pred), softmax(y_t_pred)
 
-            cls_loss_s = F.cross_entropy(y_s, label_s)
-            cls_loss_t = F.cross_entropy(y_t, label_t)
+            cls_loss_s = F.cross_entropy(y_s_pred, y_s)
+            cls_loss_t = F.cross_entropy(y_t_pred, y_t)
             loss = cls_loss_s + cls_loss_t * args.trade_off
 
 
-            cls_acc = accuracy(y_s, label_s)[0]
-            tgt_acc = accuracy(y_t, label_t)[0]
+            cls_acc = accuracy(y_s_pred, y_s)[0]
+            tgt_acc = accuracy(y_t_pred, y_t)[0]
 
             losses.update(loss.item(), x_s.size(0))
             cls_accs.update(cls_acc.item(), x_s.size(0))
@@ -352,8 +360,6 @@ def train(
 
 
 
-
-        
             '''
             # x_s : Art + Webcam
             # torch.where(embd, idx=doimain_indxs) # shape: [bs*num_domains, 512]
@@ -381,21 +387,28 @@ def train(
             # print(label_s, "\n", source_pred)
             # 1. Try training without Lof and wothout unknown classes. Using target labels expracted from centroids
 
-        h_score = validate(val_loader, classifier, prototypes, args)
+        acc = validate(val_loader, classifier, prototypes, args)
 
-        if h_score > best_h_score:
-            torch.save(netF, osp.join(args.output_dir, "latest_source_F.pt"))
-            torch.save(netB, osp.join(args.output_dir, "latest_source_B.pt"))
-            torch.save(netC, osp.join(args.output_dir, "latest_source_C.pt"))
+        if acc > best_acc:
+            best_acc = acc
 
-    print("best_h_score = {:3.1f}".format(best_h_score))
+            best_netF = netF.state_dict()
+            best_netB = netB.state_dict()
+            best_netC = netC.state_dict()
+
+            torch.save(best_netF, osp.join(args.output_dir, "latest_source_F.pt"))
+            torch.save(best_netB, osp.join(args.output_dir, "latest_source_B.pt"))
+            torch.save(best_netC, osp.join(args.output_dir, "latest_source_C.pt"))
+
+    print("best_acc = {:3.1f}".format(acc))
 
 
+# chamge it to cal_acc_oda
 def validate(val_loader: DataLoader, model: Classifier, prototypes, args: argparse.Namespace):
     batch_time = AverageMeter("Time", ":6.3f")
     classes = val_loader.dataset.datasets[0].classes
-    print(len(classes))
-    confmat = ConfusionMatrix(len(classes))
+    print("Num Classes:", len(classes))
+    # confmat = ConfusionMatrix(len(classes))
     progress = ProgressMeter(len(val_loader), [batch_time], prefix="Test: ")
     netF, netB, netC = model[0], model[1], model[2]
     netF.eval()
@@ -411,9 +424,8 @@ def validate(val_loader: DataLoader, model: Classifier, prototypes, args: argpar
 
             # compute output
             # output, _ = model(images)
-            d_embd = prototypes[d_idx]
             feats = netF(images)
-            x = torch.cat([feats, d_embd], dim=1) # Concat Features with Domain embeddings
+            x = attach_embd(prototypes, feats, d_idx)
             output = netC(netB(x))
 
             softmax_output = F.softmax(output, dim=1)
@@ -431,7 +443,7 @@ def validate(val_loader: DataLoader, model: Classifier, prototypes, args: argpar
 
 
             # measure accuracy and record loss
-            confmat.update(target, softmax_output.argmax(1).cpu())
+            # confmat.update(target, softmax_output.argmax(1).cpu())
 
             # measure elapsed time
             batch_time.update(time.time() - end)
@@ -445,33 +457,37 @@ def validate(val_loader: DataLoader, model: Classifier, prototypes, args: argpar
 
 
         matrix = confusion_matrix(all_label, all_output)
-        # disp = ConfusionMatrixDisplay(confusion_matrix=matrix)
-        # disp.plot()
-        # plt.show()
-        # print(matrix)
+        # import seaborn as sns
+        # sns.heatmap(matrix)
+        # plt.savefig('cmt_adapt')
 
         if args.wandb:
             cm = wandb.plot.confusion_matrix(y_true=all_label.numpy(), preds=all_output.numpy())
             wandb.log({"conf_mat": cm})
 
-        accs = matrix.diagonal()/matrix.sum(axis=1)
+        accs = matrix.diagonal()/matrix.sum(axis=1) * 100
+        acc = matrix.diagonal().sum() / matrix.sum() * 100
+
+        known_acc = matrix[:-1, :-1].diagonal().sum() / matrix[:-1, :-1].sum() * 100
+        unknown_acc = accs[-1] * 100
         # print(accs)
 
         # acc_global, accs, iu = confmat.compute()
-        all_acc = np.mean(accs).item() * 100
-        known = np.mean(accs[:-1]).item() * 100
-        unknown = accs[-1].item() * 100
-        h_score = 2 * np.divide(np.multiply(known, unknown), np.add(known, unknown))
+        # all_acc = np.mean(accs).item() * 100
+        # known = np.mean(accs[:-1]).item() * 100
+        # unknown = accs[-1].item() * 100
+        # h_score = 2 * np.divide(np.multiply(known, unknown), np.add(known, unknown))
         # h_score = 2 * known * unknown / (known + unknown)
-        if args.per_class_eval:
-            print(confmat.format(classes))
-        print(
-            " * All {all:.3f} Known {known:.3f} Unknown {unknown:.3f} H-score {h_score:.3f}".format(
-                all=all_acc, known=known, unknown=unknown, h_score=h_score
-            )
-        )
+        # if args.per_class_eval:
+        #     print(confmat.format(classes))
+        # print(
+        #     " * All {all:.3f} Known {known:.3f} Unknown {unknown:.3f} H-score {h_score:.3f}".format(
+        #         all=all_acc, known=known, unknown=unknown, h_score=h_score
+        #     )
+        # )
+        print("Accuracy {:.3f}, Known {:.3f}, Unknown {:.3f}".format(acc, known_acc, unknown_acc))
 
-    return h_score
+    return acc
 
 
 if __name__ == "__main__":
@@ -487,7 +503,7 @@ if __name__ == "__main__":
     parser.add_argument("--feature-dim", default=256)
     parser.add_argument("--lr-decay", default=0.75)
     parser.add_argument("--momentum", default=0.9)
-    parser.add_argument("--episodes", default=20)
+    parser.add_argument("--episodes", type=int, default=20)
     parser.add_argument("--wd", "--weight-decay", default=1e-3)
     parser.add_argument("-j", "--workers", default=4)
     parser.add_argument("--epochs", type=int, default=1)
@@ -510,8 +526,8 @@ if __name__ == "__main__":
     parser.add_argument("--per-class-eval", action="store_true")
     parser.add_argument("--tensorboard", action='store_true', help='enables tensorboard logging')
     parser.add_argument("--wandb", action="store_true", help="enables wandb logging")
-    parser.add_argument("--output_dir", default="./adapt/run1", help="enables wandb logging")
-    parser.add_argument('-l', '--trained_wt', default='weights/oda', type=str,help='Load src')
+    parser.add_argument("--output_dir", default="./adapt/run4", help="enables wandb logging")
+    parser.add_argument('-l', '--trained_wt', default='weights_final/oda', type=str,help='Load src')
     parser.add_argument(
         "--net",
         default="resnet50",

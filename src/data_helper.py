@@ -91,7 +91,7 @@ def setup_datasets(args, concat=True, return_domain_idx=True):
     #     root=args.root, task=args.target, download=True, transform=val_transform
     # )
     val_dataset = ConcatD([
-            target_dataset(root=args.root, task=target, download=True, transform=train_transform)
+            target_dataset(root=args.root, task=target, download=True, transform=val_transform)
             for target in args.target
         ]) 
 
@@ -118,5 +118,6 @@ def setup_datasets(args, concat=True, return_domain_idx=True):
 
     # train_source_iter = ForeverDataIterator(train_source_loader)
     # train_target_iter = ForeverDataIterator(train_target_loader)
+    # return num_classes, train_source_dataset, train_target_loader
     return num_classes, train_source_loader, train_target_loader, val_loader, test_loader
     

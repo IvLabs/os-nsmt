@@ -10,6 +10,7 @@ from torchvision import transforms
 from wandb.sdk.lib import disabled
 import network, loss
 from torch.utils.data import DataLoader
+from torch.utils.data.sampler import SubsetRandomSampler
 from data_list import ImageList
 import random, pdb, math, copy
 from tqdm import tqdm
@@ -25,6 +26,8 @@ sys.path.append('common')
 sys.path.append('src')
 
 from data_helper import setup_datasets
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 def op_copy(optimizer):
     for param_group in optimizer.param_groups:
         param_group['lr0'] = param_group['lr']
@@ -72,11 +75,32 @@ def attach_embd(prototypes, feats, dom_idx):
     x = torch.cat((feats, dom_embd), dim=1) # concat: ([bs, 2048], [bs, 512])
     return x
 
-def cal_acc(loader, netF, netB, netC, prototypes, flag=False):
+
+def train_val_split(dataset, split=0.20):
+    # Creating data indices for training and validation splits:
+    dataset_size = len(dataset)
+    indices = list(range(dataset_size))
+    split = int(np.floor(split * dataset_size))
+    # shuffle
+    np.random.shuffle(indices)
+    train_indices, val_indices = indices[split:], indices[:split]
+
+    # Creating PT data samplers and loaders:
+    train_sampler = SubsetRandomSampler(train_indices)
+    valid_sampler = SubsetRandomSampler(val_indices)
+
+    train_source_loader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, 
+                                            sampler=train_sampler)
+    val_source_loader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size,
+                                                    sampler=valid_sampler)
+    return train_source_loader, val_source_loader
+
+
+def cal_acc(loader, netF, netB, netC, prototypes, flag=True):
     start_test = True
     with torch.no_grad():
         iter_test = iter(loader)
-        for i in range(len(loader)):
+        for i in tqdm(range(len(loader))):
             data = iter_test.next()
             inputs = data[0][0]
             labels = data[0][1]
@@ -100,11 +124,23 @@ def cal_acc(loader, netF, netB, netC, prototypes, flag=False):
    
     if flag:
         matrix = confusion_matrix(all_label, torch.squeeze(predict).float())
-        acc = matrix.diagonal()/matrix.sum(axis=1) * 100
-        aacc = acc.mean()
-        aa = [str(np.round(i, 2)) for i in acc]
-        acc = ' '.join(aa)
-        return aacc, acc
+        print(matrix)
+        import seaborn as sns
+        import matplotlib.pyplot as plt
+        sns.heatmap(matrix)
+        plt.savefig('/data/rohit_lal/os-nsmt/cmt_adapt')
+        
+
+        accs = matrix.diagonal()/matrix.sum(axis=1) * 100
+        acc = matrix.diagonal().sum() / matrix.sum() * 100
+
+        known_acc = matrix[:-1, :-1].diagonal().sum() / matrix[:-1, :-1].sum() * 100
+        unknown_acc = accs[-1] * 100
+
+        # aacc = acc.mean()
+        # aa = [str(np.round(i, 2)) for i in acc]
+        # acc = ' '.join(aa)
+        return acc, known_acc, unknown_acc
     else:
         return accuracy*100, mean_ent
 
@@ -112,7 +148,7 @@ def cal_acc_oda(loader, netF, netB, netC, prototypes):
     start_test = True
     with torch.no_grad():
         iter_test = iter(loader)
-        for i in range(len(loader)):
+        for i in tqdm(range(len(loader))):
             data = iter_test.next()
             inputs = data[0][0]
             labels = data[0][1]
@@ -137,8 +173,16 @@ def cal_acc_oda(loader, netF, netB, netC, prototypes):
     kmeans = KMeans(n_clusters=2, random_state=0, init=initc, n_init=1).fit(ent.reshape(-1,1))
     threshold = (kmeans.cluster_centers_).mean()
 
-    predict[ent>threshold] = args.class_num
+    predict[ent>threshold] = args.class_num - 1
     matrix = confusion_matrix(all_label, torch.squeeze(predict).float())
+    # print(matrix)
+    # import seaborn as sns
+    # import matplotlib.pyplot as plt
+    # sns.heatmap(matrix)
+    # plt.savefig("cmt")
+    # sns.heatmap(matrix[:-2, :-2])
+    # plt.savefig("cmt_known")
+    
     matrix = matrix[np.unique(all_label).astype(int),:]
 
     acc = matrix.diagonal()/matrix.sum(axis=1) * 100
@@ -150,9 +194,12 @@ def cal_acc_oda(loader, netF, netB, netC, prototypes):
 def train_source(args):
     # dset_loaders = data_load(args)
     dset_loaders = {}
-    args.class_num, train_source_loader, train_target_loader, _, _ = setup_datasets(args)
+    args.class_num, train_source_dataset, train_target_loader = setup_datasets(args)
+
+    train_source_loader, val_source_loader = train_val_split(train_source_dataset, split=0.15)
+
     dset_loaders["source_tr"] = train_source_loader
-    dset_loaders["source_te"] = train_source_loader
+    dset_loaders["source_te"] = val_source_loader
     dset_loaders["test"] = train_target_loader
     ## set base network
 
@@ -249,7 +296,7 @@ def train_source(args):
             else:
                 acc_s_te, _ = cal_acc(dset_loaders['source_te'], netF, netB, netC, prototypes, False)
                 log_str = 'Task: {}, Iter:{}/{}; Accuracy = {:.2f}%'.format(args.name_src, iter_num, max_iter, acc_s_te)
-            wandb.log({'SRC TRAIN: Acc' : acc_s_te})
+            wandb.log({'Train Val Acc' : acc_s_te})
             args.out_file.write(log_str + '\n')
             args.out_file.flush()
             print(log_str+'\n')
@@ -280,52 +327,59 @@ def train_source(args):
 
 def test_target(args):
     dset_loaders = {}
-    args.class_num, train_source_loader, train_target_loader, _, _ = setup_datasets(args)
+    args.class_num, train_source_dataset, train_target_loader = setup_datasets(args)
+    train_source_loader, val_source_loader = train_val_split(train_source_dataset, split=0.15)
     dset_loaders["source_tr"] = train_source_loader
-    dset_loaders["source_te"] = train_source_loader
+    dset_loaders["source_te"] = val_source_loader
     dset_loaders["test"] = train_target_loader
 
     ## set base network
     if args.net[0:3] == 'res':
-        netF = network.ResBase(res_name=args.net).cuda()
+        netF = network.ResBase(res_name=args.net).to(device)
     elif args.net[0:3] == 'vgg':
-        netF = network.VGGBase(vgg_name=args.net).cuda()  
+        netF = network.VGGBase(vgg_name=args.net).to(device)  
     else:
-        netF = network.ViT().cuda()
+        netF = network.ViT().to(device)
         
     # args.feature_dim = netF.in_features
     netB = network.feat_bootleneck(
         type=args.classifier,
         feature_dim=netF.in_features + args.proto_dim,
         bottleneck_dim=args.bottleneck
-    ).cuda()
-    netC = network.feat_classifier(type=args.layer, class_num = args.class_num, bottleneck_dim=args.bottleneck).cuda()
+    ).to(device)
+    netC = network.feat_classifier(type=args.layer, class_num = args.class_num, bottleneck_dim=args.bottleneck).to(device)
     
     prototypes_file = osp.join(args.proto_path)
     prototypes = torch.load(prototypes_file)
     prototypes = torch.stack(list(prototypes.values()), dim=0)  # shape: [4, 512]
-    prototypes = prototypes.cuda()
+    prototypes = prototypes.to(device)
 
-    args.modelpath = args.output_dir_src + '/source_F.pt'   
+    args.output_dir_src = osp.join("/data/rohit_lal/os-nsmt/weights_final/oda/OfficeHome/ArPr")
+    args.modelpath = args.output_dir_src + '/source_F.pt'
     netF.load_state_dict(torch.load(args.modelpath))
-    args.modelpath = args.output_dir_src + '/source_B.pt'   
+    args.modelpath = args.output_dir_src + '/source_B.pt'
     netB.load_state_dict(torch.load(args.modelpath))
-    args.modelpath = args.output_dir_src + '/source_C.pt'   
+    args.modelpath = args.output_dir_src + '/source_C.pt'
     netC.load_state_dict(torch.load(args.modelpath))
     netF.eval()
     netB.eval()
     netC.eval()
 
-    if args.da == 'oda':
-        acc_os1, acc_os2, acc_unknown = cal_acc_oda(dset_loaders['test'], netF, netB, netC, prototypes)
-        log_str = '\nTraining: {}, Task: {}, Accuracy = {:.2f}% / {:.2f}% / {:.2f}%'.format(args.trte, args.name, acc_os2, acc_os1, acc_unknown)
-    else:
-        if args.dataset=='visda-2017':
-            acc, acc_list = cal_acc(dset_loaders['test'], netF, netB, netC, prototypes, True)
-            log_str = '\nTraining: {}, Task: {}, Accuracy = {:.2f}%'.format(args.trte, args.name, acc) + '\n' + acc_list
-        else:
-            acc, _ = cal_acc(dset_loaders['test'], netF, netB, netC, prototypes, False)
-            log_str = '\nTraining: {}, Task: {}, Accuracy = {:.2f}%'.format(args.trte, args.name, acc)
+    source_acc, _ = cal_acc(dset_loaders['source_te'], netF, netB, netC, prototypes, False)
+    # if args.da == 'oda':
+    #     acc_os1, acc_os2, acc_unknown = cal_acc(dset_loaders['test'], netF, netB, netC, prototypes)
+    #     log_str = '\nTraining: {}, Task: {}, Accuracy = {:.2f}% / {:.2f}% / {:.2f}%'.format(args.trte, args.name, acc_os2, acc_os1, acc_unknown)
+    # else:
+    #     if args.dataset=='visda-2017':
+    #         acc, acc_list = cal_acc(dset_loaders['test'], netF, netB, netC, prototypes, True)
+    #         log_str = '\nTraining: {}, Task: {}, Accuracy = {:.2f}%'.format(args.trte, args.name, acc) + '\n' + acc_list
+    #     else:
+    acc, known_acc, unknown_acc = cal_acc(dset_loaders['test'], netF, netB, netC, prototypes, True)
+    log_str = '\nTraining: {}, Task: {}, Accuracy = {:.2f}%, Known Acc = {:.2f}%, Unknown Acc = {:.2f}%'.format(args.trte, args.name, acc, known_acc, unknown_acc)
+
+    log_str += f' Source Accuracy = {source_acc:.2f}%'
+    # acc, _ = cal_acc(dset_loaders['test'], netF, netB, netC, prototypes, False)
+    # log_str = '\nTraining: {}, Task: {}, SourceAccuracy = {:.2f}% Accuracy = {:.2f}%'.format(args.trte, args.name, source_acc, acc)
 
     args.out_file.write(log_str)
     args.out_file.flush()
@@ -356,7 +410,7 @@ if __name__ == "__main__":
     parser.add_argument('--layer', type=str, default="wn", choices=["linear", "wn"])
     parser.add_argument('--classifier', type=str, default="bn", choices=["ori", "bn"])
     parser.add_argument('--smooth', type=float, default=0.1)   
-    parser.add_argument('--output', type=str, default='warmup')
+    parser.add_argument('--output', type=str, default='weights')
     parser.add_argument('--da', type=str, default='oda', choices=['uda', 'pda', 'oda'])
     parser.add_argument('--trte', type=str, default='val', choices=['full', 'val'])
     parser.add_argument('--bsp', type=bool, default=False)
@@ -403,8 +457,8 @@ if __name__ == "__main__":
     if not osp.exists(args.output_dir_src):
         os.mkdir(args.output_dir_src)
 
-    # args.proto_path = "./protoruns/run7/prototypes.pth"
-    assert osp.exists(args.proto_path), "Domain Embeddings Prototypes does not exists." 
+    args.proto_path = "./protoruns/run7/prototypes.pth"
+    # assert osp.exists(args.proto_path), "Domain Embeddings Prototypes does not exists." 
 
     args.out_file = open(osp.join(args.output_dir_src, 'log.txt'), 'w')
     args.out_file.write(print_args(args)+'\n')
@@ -412,5 +466,5 @@ if __name__ == "__main__":
     args.name = args.source.replace(',','') +  '_' + args.target.replace(',','')
     args.out_file = open(osp.join(args.output_dir_src, 'log_test.txt'), 'w')
     
-    train_source(args)
+    # train_source(args)
     test_target(args)
