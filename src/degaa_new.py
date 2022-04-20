@@ -105,7 +105,7 @@ def main(args: argparse.Namespace):
     train_target_iter = ForeverDataIterator(train_target_loader)
 
     # backbone = models.__dict__[args.arch](pretrained = True)
-    netF = network.ResBase(res_name=args.net).to('cpu')
+    netF = network.ResBase(res_name=args.net).to(device)
 
     # num_classes = args.num_classes  # train_source_dataset.num_classes
     # num_classes = len(train_source_dataset.datasets[0].classes)
@@ -119,7 +119,7 @@ def main(args: argparse.Namespace):
         type=args.classifier,
         feature_dim=args.feature_dim + args.proto_dim, # 2048 + 512
         bottleneck_dim=args.bottleneck, # 256
-    ).to('cpu')
+    ).to(device)
     netC = network.feat_classifier(
         type=args.layer, class_num=args.num_classes, bottleneck_dim=args.bottleneck  # 256, #26
     ).to(device)
@@ -167,14 +167,14 @@ def main(args: argparse.Namespace):
     # summary(gaa, [(32, 1024),(32, 1024)])
     centroids = np.load(args.centroid_path)
     centroids = centroids[:num_classes-1]
-    centroids = torch.from_numpy(centroids).to('cpu')
+    centroids = torch.from_numpy(centroids).to(device)
     # print(centroids.shape)
 
     prototypes_file = os.path.join(args.proto_path)
     prototypes = torch.load(prototypes_file)
     # print(prototypes.keys())
     prototypes = torch.stack(list(prototypes.values()), dim=0)  # shape: [4, 512]
-    prototypes = prototypes.to('cpu')
+    prototypes = prototypes.to(device)
 
     if args.phase == "test":
         acc = validate(val_loader, classifier, prototypes, args)
@@ -227,8 +227,10 @@ def train(
     num_classes=65,
 ):
     best_acc = 0.0
-    F_S, F_T, Label_S, Label_T = [], [], [], []
+    # F_S, F_T, Label_S, Label_T = [], [], [], []
     Temp_DataLoader = None
+    # Psuedo_Labels = torch.empty(train_target_iter.data_loader.dataset.__len__())
+    Psuedo_Labels = np.empty(train_target_iter.data_loader.dataset.__len__())
     for epoch in range(args.epochs):
 
         global counter
@@ -253,44 +255,47 @@ def train(
         softmax = nn.Softmax(dim=1)
 
         # args.iters_per_epoch = int(8704/args.batch_size)
-        args.iters_per_epoch = len(train_source_iter)
+        args.iters_per_epoch = len(train_target_iter)
         end = time.time()
 
-        # a = 0
         if epoch == 0 or epoch % args.episodes == 0:
             F_S, F_T, Label_S, Label_T = [], [], [], []
+            T_idxs = []
             for i in tqdm(range(args.iters_per_epoch), "LOF and Pseudo labels"):
-                (x_s, label_s), ds_idx = next(train_source_iter)
-                (x_t, label_t), dt_idx = next(train_target_iter)
+                # (x_s, label_s), ds_idx, s_idx = next(train_source_iter)
+                (x_t, label_t), dt_idx, t_idx = next(train_target_iter)
                 # x_s = x_s.to(device)
-                # x_t = x_t.to(device)
+                x_t = x_t.to(device)
 
-                # feat_s, feat_t = netF(x_s), netF(x_t)
-                # f_s, f_t = attach_embd(prototypes, feat_s, ds_idx), attach_embd(prototypes, feat_t, dt_idx)
-                # f_s, f_t = netB(f_s), netB(f_t)
-                x = torch.cat((x_s, x_t), dim=0)
-                dom_idx = torch.cat((ds_idx, dt_idx), dim=0)
-                feats = netF(x)
-                f = attach_embd(prototypes, feats, dom_idx)
-                f = netB(f)
-                f = F.normalize(f, dim=0)
-                f_s, f_t = f.chunk(2, dim=0)
+                feat_t = netF(x_t)
+                f_t = attach_embd(prototypes, feat_t, dt_idx)
+                f_t = netB(f_t)
+                f_t = F.normalize(f_t, dim=0)
+                
+                # x = torch.cat((x_s, x_t), dim=0)
+                # dom_idx = torch.cat((ds_idx, dt_idx), dim=0)
+                # feats = netF(x)
+                # f = attach_embd(prototypes, feats, dom_idx)
+                # f = netB(f)
+                # f = F.normalize(f, dim=0)
+                # f_s, f_t = f.chunk(2, dim=0)
 
-                F_S.append(f_s)
-                Label_S.append(label_s)
-                Label_T.append(label_t)
-                F_T.append(f_t)
-                # a +=1
-                # if a > 3:
-                #     break
+                # F_S.append(f_s)
+                # Label_S.append(label_s)
+                Label_T.append(label_t.cpu().detach())
+                F_T.append(f_t.cpu().detach().numpy())
+                T_idxs.append(t_idx)
             
-            F_S = torch.cat(F_S)
-            Label_S = torch.cat(Label_S)
+            # F_S = torch.cat(F_S)
+            # Label_S = torch.cat(Label_S)
             Label_T = torch.cat(Label_T)
-            F_T = torch.cat(F_T)
+            # F_T = torch.cat(F_T)
 
-            # F_T = np.concatenate(F_T)
-            Y_Preds = clf.fit_predict(F_T.clone().detach().numpy())
+            # S_idxs = torch.cat(S_idxs)
+            T_idxs = torch.cat(T_idxs)
+
+            F_T = np.concatenate(F_T)
+            Y_Preds = clf.fit_predict(F_T)
             unknown_acc = np.intersect1d(np.where(Y_Preds==-1), np.where(Label_T==25)).shape[0] / sum(Label_T==25)
             logger.write(f"EPOCH: {epoch:3.0f} LOF Unknown accuracy (num_correct_predicted_outliers / num_total_outliers): {unknown_acc:.3f}\n")
             logger.flush()
@@ -314,24 +319,41 @@ def train(
                     {"LOF_accuracy": unknown_acc , "Pseudo_label_accuracy": psuedo_label_acc}
                 )
 
+            Psuedo_Labels[T_idxs] = Label_TT
+            Psuedo_Labels = torch.from_numpy(Psuedo_Labels)
+            del F_T
             # F_T = torch.from_numpy(F_T)
-            Temp_DataLoader = DataLoader(TensorDataset(F_S, Label_S, F_T, Label_TT), args.batch_size, shuffle=True, num_workers=args.workers)
+            # Temp_DataLoader = DataLoader(TensorDataset(F_S, Label_S, F_T, Label_TT), args.batch_size, shuffle=True, num_workers=args.workers)
 
 
-        for (f_s, y_s, f_t, y_t) in tqdm(Temp_DataLoader, "GAA"):
-            data_time.update(time.time() - end)
-            y_s, y_t = y_s.to(device), y_t.to(device)
-            f_s, f_t = gaa(f_s.to(device), f_t.to(device))
-            y_s_pred, y_t_pred = netC(f_s), netC(f_t)
-            y_s_pred, y_t_pred = softmax(y_s_pred), softmax(y_t_pred)
+        for i in tqdm(range(args.iters_per_epoch), "GAA"):
+            (x_s, label_s), ds_idx, s_idx = next(train_source_iter)
+            (x_t, label_t), dt_idx, t_idx = next(train_target_iter)
 
-            cls_loss_s = F.cross_entropy(y_s_pred, y_s)
-            cls_loss_t = F.cross_entropy(y_t_pred, y_t)
+            x_s = x_s.to(device)
+            label_s = label_s.to(device)
+            x_t = x_t.to(device)
+            label_t = label_t.to(device)
+            label_tt = Psuedo_Labels[t_idx].to(device)
+
+            x = torch.cat((x_s, x_t), dim=0)
+            dom_idx = torch.cat((ds_idx, dt_idx), dim=0)
+            feats = netF(x)
+            f = attach_embd(prototypes, feats, dom_idx)
+            f = netB(f)
+            f_s, f_t = f.chunk(2, dim=0)
+
+            f_s, f_t = gaa(f_s, f_t)
+            y_s, y_t = netC(f_s), netC(f_t)
+            y_s, y_t = softmax(y_s), softmax(y_t)
+
+            cls_loss_s = F.cross_entropy(y_s, label_s)
+            cls_loss_t = F.cross_entropy(y_t, label_tt)
             loss = cls_loss_s + cls_loss_t * args.trade_off
 
 
-            cls_acc = accuracy(y_s_pred, y_s)[0]
-            tgt_acc = accuracy(y_t_pred, y_t)[0]
+            cls_acc = accuracy(y_s, label_s)[0]
+            tgt_acc = accuracy(y_t, label_tt)[0]
 
             losses.update(loss.item(), x_s.size(0))
             cls_accs.update(cls_acc.item(), x_s.size(0))
