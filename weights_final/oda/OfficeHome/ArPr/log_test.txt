@@ -1,0 +1,2 @@
+
+Training: val, Task: ArPr_ClRw, Accuracy = 52.48% / 51.22% / 84.17% Source Accuracy = 92.11%

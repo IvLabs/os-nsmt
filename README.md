@@ -81,5 +81,39 @@ mv R50+ViT-B_16.npz ./model/vit_checkpoint/imagenet21k/R50+ViT-B_16.npz
 ### CODE
 - Run `sh source_only.sh` for multi-src training. 
 - Run `scripts/warmup.sh` for calculating centroids
+- Run `scripts/adapt.sh` for adaptation
+
+### Codes
+
+1. [degaa_new.py](./src/degaa_new.py)
+
+    * Passes whole data through LOF not batchwise
+    * The LOF is applied every kth epoch of training (k=20)
+    * Output Dir: [./adapt/run2](./adapt/run2/)
+    * Pseudo Code:
+      ```py
+      for epoch in epochs:
+
+        if epoch % num_episodes = 0:
+          for i in iters_per_epoch:
+            Feat_S = concat(Feat_S, netB(netF(batch_s) || DE))
+            Feat_T = concat(Feat_T, netB(netF(batch_t) || DE))
+          
+          Y_preds = LOF(Feat_T) # Array of [1 and -1]
+          Label_T.where( Y_preds == -1 ) = 25 
+
+          known = Feat_T.where(Y_preds == 1)
+          Label_T.where( Y_preds == 1) = KNN(known, centroids)
+
+          TempData = [Feat_s, Label_S, Feat_T, Label_T]
+
+        for batch in TempData:
+          F_s, F_t = GAA(Feat_S, Feat_T)
+          Y_s, Y_t = softmax(netC(F_s)), softmax(netC(F_t))
+
+          loss = CE(Y_s, Label_s) + CE(Y_t, Label_t)
+
+          loss.backward()
+      ```
 
 This code is taken from [Transfer-Learning-Library](https://github.com/thuml/Transfer-Learning-Library). This will be boiler-plate code. Do checkout some of the [examples](https://github.com/thuml/Transfer-Learning-Library/tree/master/examples/domain_adaptation).

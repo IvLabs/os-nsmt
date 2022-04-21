@@ -1,1 +1,1 @@
-CUDA_VISIBLE_DEVICES=2 python src/degaa.py --output_dir ./adapt/run1 --dataset OfficeHome --source Ar,Pr --target Cl,Rw --batch_size 64 --trained_wt weights/oda --wandb
+CUDA_VISIBLE_DEVICES=2 python src/degaa_new.py --output_dir ./adapt/run6 --dataset OfficeHome --source Ar,Pr --target Cl,Rw --batch_size 48 --epochs 100 --episodes 5 --trained_wt weights_final/oda --wandb
