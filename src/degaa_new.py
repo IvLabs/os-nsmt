@@ -72,8 +72,7 @@ def main(args: argparse.Namespace):
     if args.wandb:
         mode = "online" if args.wandb else "disabled"
         wandb.init(project="degaa", entity="abd1", mode=mode)
-        wandb.run.name = wandb.run.name + str(args.source) + str(args.target)
-        wandb.run.notes = "Passing Whole data through LOF"
+        wandb.run.name = wandb.run.name + f" S: {str(args.source)} T: {str(args.target)}"
     if args.tensorboard:
         global writer
         writer = SummaryWriter(os.path.join(args.output_dir,"tensorboard"))
@@ -168,6 +167,7 @@ def main(args: argparse.Namespace):
     centroids = np.load(args.centroid_path)
     centroids = centroids[:num_classes-1]
     centroids = torch.from_numpy(centroids).to(device)
+    print("Loading centroids from", args.centroid_path)
     # print(centroids.shape)
 
     prototypes_file = os.path.join(args.proto_path)
@@ -259,71 +259,73 @@ def train(
         end = time.time()
 
         if epoch == 0 or epoch % args.episodes == 0:
-            F_S, F_T, Label_S, Label_T = [], [], [], []
-            T_idxs = []
-            for i in tqdm(range(args.iters_per_epoch), "LOF and Pseudo labels"):
-                # (x_s, label_s), ds_idx, s_idx = next(train_source_iter)
-                (x_t, label_t), dt_idx, t_idx = next(train_target_iter)
-                # x_s = x_s.to(device)
-                x_t = x_t.to(device)
+            with torch.no_grad():
+                F_S, F_T, Label_S, Label_T = [], [], [], []
+                T_idxs = []
+                for i in tqdm(range(args.iters_per_epoch), "LOF and Pseudo labels"):
+                    # (x_s, label_s), ds_idx, s_idx = next(train_source_iter)
+                    (x_t, label_t), dt_idx, t_idx = next(train_target_iter)
+                    # x_s = x_s.to(device)
+                    x_t = x_t.to(device)
 
-                feat_t = netF(x_t)
-                f_t = attach_embd(prototypes, feat_t, dt_idx)
-                f_t = netB(f_t)
-                f_t = F.normalize(f_t, dim=0)
+                    feat_t = netF(x_t)
+                    f_t = attach_embd(prototypes, feat_t, dt_idx)
+                    f_t = netB(f_t)
+                    f_t = F.normalize(f_t, dim=0)
+                    
+                    # x = torch.cat((x_s, x_t), dim=0)
+                    # dom_idx = torch.cat((ds_idx, dt_idx), dim=0)
+                    # feats = netF(x)
+                    # f = attach_embd(prototypes, feats, dom_idx)
+                    # f = netB(f)
+                    # f = F.normalize(f, dim=0)
+                    # f_s, f_t = f.chunk(2, dim=0)
+
+                    # F_S.append(f_s)
+                    # Label_S.append(label_s)
+                    Label_T.append(label_t.cpu().detach())
+                    F_T.append(f_t.cpu().detach().numpy())
+                    T_idxs.append(t_idx)
+
+                # F_S = torch.cat(F_S)
+                # Label_S = torch.cat(Label_S)
+                Label_T = torch.cat(Label_T)
+                # F_T = torch.cat(F_T)
+
+                # S_idxs = torch.cat(S_idxs)
+                T_idxs = torch.cat(T_idxs)
+
+                F_T = np.concatenate(F_T)
+                Y_Preds = clf.fit_predict(F_T)
+                unknown_acc = np.intersect1d(np.where(Y_Preds==-1), np.where(Label_T==25)).shape[0] / sum(Label_T==25)
+                logger.write(f"EPOCH: {epoch:3.0f} LOF Unknown accuracy (num_correct_predicted_outliers / num_total_outliers): {unknown_acc:.3f}\n")
+                logger.flush()
                 
-                # x = torch.cat((x_s, x_t), dim=0)
-                # dom_idx = torch.cat((ds_idx, dt_idx), dim=0)
-                # feats = netF(x)
-                # f = attach_embd(prototypes, feats, dom_idx)
-                # f = netB(f)
-                # f = F.normalize(f, dim=0)
-                # f_s, f_t = f.chunk(2, dim=0)
+                Label_TT = torch.empty_like(Label_T)
+                # index = np.where(Y_Preds == -1)[0]
+                index = (Y_Preds == -1)
+                Label_TT[index] = num_classes - 1 # label=25 where y_pred=-1
 
-                # F_S.append(f_s)
-                # Label_S.append(label_s)
-                Label_T.append(label_t.cpu().detach())
-                F_T.append(f_t.cpu().detach().numpy())
-                T_idxs.append(t_idx)
-            
-            # F_S = torch.cat(F_S)
-            # Label_S = torch.cat(Label_S)
-            Label_T = torch.cat(Label_T)
-            # F_T = torch.cat(F_T)
+                Known = F_T[~index]
+                Known_idx = NearestNeighbor(torch.from_numpy(Known).to(device), centroids).cpu()
+                Label_TT[~index] = Known_idx.squeeze()
 
-            # S_idxs = torch.cat(S_idxs)
-            T_idxs = torch.cat(T_idxs)
+                psuedo_label_acc = Label_TT[~index].eq(Label_T[~index]).sum() / Label_T[~index].shape[0]
+                logger.write(f"EPOCH: {epoch:3.0f} Pseudo Label accuracy: {psuedo_label_acc:.3f}")
+                logger.flush()
+                print(f"EPOCH: {epoch:3.0f} Pseudo Label accuracy: {psuedo_label_acc:.3f}")
 
-            F_T = np.concatenate(F_T)
-            Y_Preds = clf.fit_predict(F_T)
-            unknown_acc = np.intersect1d(np.where(Y_Preds==-1), np.where(Label_T==25)).shape[0] / sum(Label_T==25)
-            logger.write(f"EPOCH: {epoch:3.0f} LOF Unknown accuracy (num_correct_predicted_outliers / num_total_outliers): {unknown_acc:.3f}\n")
-            logger.flush()
-            
-            Label_TT = torch.empty_like(Label_T)
-            # index = np.where(Y_Preds == -1)[0]
-            index = (Y_Preds == -1)
-            Label_TT[index] = num_classes - 1 # label=25 where y_pred=-1
+                if args.wandb:
+                    wandb.log(
+                        {"LOF_accuracy": unknown_acc , "Pseudo_label_accuracy": psuedo_label_acc}
+                    )
 
-            Known = F_T[~index]
-            Known_idx = NearestNeighbor(torch.from_numpy(Known).to(device), centroids).cpu()
-            Label_TT[~index] = Known_idx.squeeze()
-
-            psuedo_label_acc = Label_TT[~index].eq(Label_T[~index]).sum() / Label_T[~index].shape[0]
-            logger.write(f"EPOCH: {epoch:3.0f} Pseudo Label accuracy: {psuedo_label_acc:.3f}")
-            logger.flush()
-            print(f"EPOCH: {epoch:3.0f} Pseudo Label accuracy: {psuedo_label_acc:.3f}")
-
-            if args.wandb:
-                wandb.log(
-                    {"LOF_accuracy": unknown_acc , "Pseudo_label_accuracy": psuedo_label_acc}
-                )
-
-            Psuedo_Labels[T_idxs] = Label_TT
-            Psuedo_Labels = torch.from_numpy(Psuedo_Labels)
-            del F_T
-            # F_T = torch.from_numpy(F_T)
-            # Temp_DataLoader = DataLoader(TensorDataset(F_S, Label_S, F_T, Label_TT), args.batch_size, shuffle=True, num_workers=args.workers)
+                Psuedo_Labels[T_idxs] = Label_TT
+                if type(Psuedo_Labels) is np.ndarray:
+                    Psuedo_Labels = torch.from_numpy(Psuedo_Labels).long()
+                del F_T
+                # F_T = torch.from_numpy(F_T)
+                # Temp_DataLoader = DataLoader(TensorDataset(F_S, Label_S, F_T, Label_TT), args.batch_size, shuffle=True, num_workers=args.workers)
 
 
         for i in tqdm(range(args.iters_per_epoch), "GAA"):
@@ -339,6 +341,7 @@ def train(
             x = torch.cat((x_s, x_t), dim=0)
             dom_idx = torch.cat((ds_idx, dt_idx), dim=0)
             feats = netF(x)
+            # print(netF.conv1.weight[0,0,0,0].item(), netF.conv1.weight[0,0,1,1].item(), netF.conv1.weight[2,1,0,0].item())
             f = attach_embd(prototypes, feats, dom_idx)
             f = netB(f)
             f_s, f_t = f.chunk(2, dim=0)
@@ -370,15 +373,15 @@ def train(
             counter = counter + 1
             if args.wandb:
                 wandb.log(
-                    {"accuracy_source": cls_acc, "accuracy_target": tgt_acc, "loss": loss}
+                    {"Accuracy_Source": cls_acc, "Accuracy_Target(Train)": tgt_acc, "loss": loss}
                 )
             if args.tensorboard:
                 writer.add_scalar('accuracy_source', cls_acc, counter)
                 writer.add_scalar('accuracy_target', cls_acc, counter)
                 writer.add_scalar('loss', loss, counter)
 
-            if i % args.print_freq == 0:
-                progress.display(i)
+            # if i % args.print_freq == 0:
+            #     progress.display(i)
 
 
 
@@ -409,18 +412,19 @@ def train(
             # print(label_s, "\n", source_pred)
             # 1. Try training without Lof and wothout unknown classes. Using target labels expracted from centroids
 
-        acc = validate(val_loader, classifier, prototypes, args)
+        if epoch == 0 or epoch % args.episodes == 0:
+            acc = validate(val_loader, classifier, prototypes, args)
 
-        if acc > best_acc:
-            best_acc = acc
+            if acc > best_acc:
+                best_acc = acc
 
-            best_netF = netF.state_dict()
-            best_netB = netB.state_dict()
-            best_netC = netC.state_dict()
+                best_netF = netF.state_dict()
+                best_netB = netB.state_dict()
+                best_netC = netC.state_dict()
 
-            torch.save(best_netF, osp.join(args.output_dir, "latest_source_F.pt"))
-            torch.save(best_netB, osp.join(args.output_dir, "latest_source_B.pt"))
-            torch.save(best_netC, osp.join(args.output_dir, "latest_source_C.pt"))
+                torch.save(best_netF, osp.join(args.output_dir, "best_source_F.pt"))
+                torch.save(best_netB, osp.join(args.output_dir, "best_source_B.pt"))
+                torch.save(best_netC, osp.join(args.output_dir, "best_source_C.pt"))
 
     print("best_acc = {:3.1f}".format(acc))
 
@@ -440,7 +444,7 @@ def validate(val_loader: DataLoader, model: Classifier, prototypes, args: argpar
     start_test = True
     with torch.no_grad():
         end = time.time()
-        for i, ((images, target), d_idx) in enumerate(val_loader):
+        for i, ((images, target), d_idx, _) in enumerate(val_loader):
             images = images.to(device)
             # target = target.to(device)
 
@@ -474,18 +478,10 @@ def validate(val_loader: DataLoader, model: Classifier, prototypes, args: argpar
             if i % args.print_freq == 0:
                 progress.display(i)
             
-            # break
-            
-
-
         matrix = confusion_matrix(all_label, all_output)
         # import seaborn as sns
         # sns.heatmap(matrix)
         # plt.savefig('cmt_adapt')
-
-        if args.wandb:
-            cm = wandb.plot.confusion_matrix(y_true=all_label.numpy(), preds=all_output.numpy())
-            wandb.log({"conf_mat": cm})
 
         accs = matrix.diagonal()/matrix.sum(axis=1) * 100
         acc = matrix.diagonal().sum() / matrix.sum() * 100
@@ -508,6 +504,12 @@ def validate(val_loader: DataLoader, model: Classifier, prototypes, args: argpar
         #     )
         # )
         print("Accuracy {:.3f}, Known {:.3f}, Unknown {:.3f}".format(acc, known_acc, unknown_acc))
+        if args.wandb:
+            # cm = wandb.plot.confusion_matrix(y_true=all_label.numpy(), preds=all_output.numpy())
+            # wandb.log({"conf_mat": cm})
+            wandb.log(
+                {"Accuracy_Target(Val)": acc, "Accuracy_Known": known_acc, "Accuracy_Unknown": unknown_acc}
+            )
 
     return acc
 
@@ -518,8 +520,8 @@ if __name__ == "__main__":
 
     parser.add_argument("-d", "--dataset", default="OfficeHome")
     # parser.add_argument("-a",c "--arch", default="resnet50")
-    parser.add_argument("-b", "--batch_size", type=int, default=7)
-    parser.add_argument("--lr", "--learning_rate", default=0.002)
+    parser.add_argument("-b", "--batch_size", type=int, default=32)
+    parser.add_argument("--lr", "--learning_rate", default=0.01)
     parser.add_argument("--lr-gamma", default=0.001)
     parser.add_argument("--bottleneck-dim", default=256)
     parser.add_argument("--feature-dim", default=256)
@@ -563,7 +565,7 @@ if __name__ == "__main__":
     args.proto_path = "./protoruns/run7/prototypes.pth"
     assert osp.exists(args.proto_path), "Domain Embeddings Prototypes does not exists." 
 
-    args.centroid_path = "./centroids/OfficeHome/ArPr_centroid.npy"
+    args.centroid_path =  f'./centroids/{args.dataset}/{"".join(args.source)}_centroid.npy'
     assert osp.exists(args.centroid_path), "Source Only trained centroids does not exists." 
 
     if not osp.exists(args.output_dir):

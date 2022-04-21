@@ -8,7 +8,7 @@ from common.vision.datasets.openset import default_open_set as open_set
 from common.vision.datasets.Concatenate import ConcatenateDataset
 from common.utils.data import ForeverDataIterator
 
-def setup_datasets(args, concat=True, return_domain_idx=True):
+def setup_datasets(args, concat=True, return_domain_idx=True, return_dataset=False):
 
     # if concat:
     ConcatD = ConcatenateDataset if return_domain_idx else ConcatDataset
@@ -86,6 +86,8 @@ def setup_datasets(args, concat=True, return_domain_idx=True):
         ))
         for dataset in train_target_dataset]
         
+    if return_dataset:
+        return num_classes, train_source_dataset, train_target_loader
 
     # val_dataset = target_dataset(
     #     root=args.root, task=args.target, download=True, transform=val_transform
@@ -118,6 +120,5 @@ def setup_datasets(args, concat=True, return_domain_idx=True):
 
     # train_source_iter = ForeverDataIterator(train_source_loader)
     # train_target_iter = ForeverDataIterator(train_target_loader)
-    # return num_classes, train_source_dataset, train_target_loader
     return num_classes, train_source_loader, train_target_loader, val_loader, test_loader
     

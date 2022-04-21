@@ -194,7 +194,7 @@ def cal_acc_oda(loader, netF, netB, netC, prototypes):
 def train_source(args):
     # dset_loaders = data_load(args)
     dset_loaders = {}
-    args.class_num, train_source_dataset, train_target_loader = setup_datasets(args)
+    args.class_num, train_source_dataset, train_target_loader = setup_datasets(args, return_dataset=True)
 
     train_source_loader, val_source_loader = train_val_split(train_source_dataset, split=0.15)
 
@@ -254,10 +254,10 @@ def train_source(args):
 
     while iter_num < max_iter:
         try:
-            (inputs_source, labels_source), dom_idx = iter_source.next()
+            (inputs_source, labels_source), dom_idx, _ = iter_source.next()
         except:
             iter_source = iter(dset_loaders["source_tr"])
-            (inputs_source, labels_source), dom_idx = iter_source.next()
+            (inputs_source, labels_source), dom_idx, _ = iter_source.next()
 
         if inputs_source.size(0) == 1:
             continue
@@ -327,7 +327,7 @@ def train_source(args):
 
 def test_target(args):
     dset_loaders = {}
-    args.class_num, train_source_dataset, train_target_loader = setup_datasets(args)
+    args.class_num, train_source_dataset, train_target_loader = setup_datasets(args, return_dataset=True)
     train_source_loader, val_source_loader = train_val_split(train_source_dataset, split=0.15)
     dset_loaders["source_tr"] = train_source_loader
     dset_loaders["source_te"] = val_source_loader
@@ -354,7 +354,6 @@ def test_target(args):
     prototypes = torch.stack(list(prototypes.values()), dim=0)  # shape: [4, 512]
     prototypes = prototypes.to(device)
 
-    args.output_dir_src = osp.join("/data/rohit_lal/os-nsmt/weights_final/oda/OfficeHome/ArPr")
     args.modelpath = args.output_dir_src + '/source_F.pt'
     netF.load_state_dict(torch.load(args.modelpath))
     args.modelpath = args.output_dir_src + '/source_B.pt'
@@ -447,7 +446,7 @@ if __name__ == "__main__":
 
     mode = 'online' if args.wandb else 'disabled'
     wandb.init(project='degaa', entity='abd1', mode=mode)
-    wandb.run.name =  'Warmup: {args.source}' + wandb.run.name
+    wandb.run.name =  f'Warmup: {args.source}' + wandb.run.name
     print(print_args(args))
 
     args.output_dir_src = osp.join(args.output, args.da, args.dataset, args.source.replace(',',''))
@@ -466,5 +465,5 @@ if __name__ == "__main__":
     args.name = args.source.replace(',','') +  '_' + args.target.replace(',','')
     args.out_file = open(osp.join(args.output_dir_src, 'log_test.txt'), 'w')
     
-    # train_source(args)
+    train_source(args)
     test_target(args)
