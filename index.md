@@ -42,7 +42,9 @@ If you find our work useful please cite our paper.
 @InProceedings{Lal_2021_NeurIPS,
     author    = {Lal, Rohit and Gaur, Arihant and Iyer, Aadhithya and Shaikh, Muhammed Abdullah and Agrawal, Ritik},
     title     = {Open-Set Multi-Source Multi-Target Domain Adaptation},
+    booktitle = {NeurIPS 2021 Workshop on Pre-registration in Machine Learning},
     month     = {December},
-    year      = {2021}
+    year      = {2021},
+    url       = {https://preregister.science/papers_21neurips/11_paper.pdf},
 }
 ```
