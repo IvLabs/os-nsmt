@@ -1,6 +1,6 @@
 ## Authors
 
-[Rohit Lal](http://rohitlal.net/)<sup>1</sup>, [Arihant Gaur](https://flagarihant2000.github.io/arihantgaur/)<sup>2</sup>, [Aadhithya Iyer](https://aadhithya14.wixsite.com/aadhithya)<sup>2</sup>, [Muhammed Abdullah Shaikh](https://abd.rocks/index_old.html)<sup>2</sup> and [Ritik Agrawal](https://www.linkedin.com/in/ritik-agrawal-6b7718189)<sup>2</sup>
+[Rohit Lal](http://rohitlal.net/)<sup>1</sup>, [Arihant Gaur](https://flagarihant2000.github.io/arihantgaur/)<sup>2</sup>, [Aadhithya Iyer](https://aadhithya14.wixsite.com/aadhithya)<sup>2</sup>, [Muhammed Abdullah Shaikh](https://abd-01.github.io/)<sup>2</sup> and [Ritik Agrawal](https://www.linkedin.com/in/ritik-agrawal-6b7718189)<sup>2</sup>
 
 <sup>1</sup>
 Indian Institute of Science (IISc), Bangalore
